@@ -2,7 +2,7 @@ import maplibregl from 'maplibre-gl';
 import type { SlopePolygon, RiskColor } from '../types';
 
 export const SLOPES_SOURCE      = 'slopes';
-export const SLOPES_FILL_LAYER  = 'slopes-fill';   // exported so App can pass as beforeLayerId
+export const SLOPES_FILL_LAYER  = 'slopes-fill';
 export const SLOPES_LINE_LAYER  = 'slopes-line';
 export const SLOPES_LABEL_LAYER = 'slopes-label';
 
@@ -15,15 +15,14 @@ export const COLOR_MAP: Record<RiskColor, string> = {
 
 function buildRing(coords: [number, number][]): [number, number][] {
   if (coords.length < 3) return coords;
-  // Strip existing closing point if present (float-safe)
   const first = coords[0];
   const last  = coords[coords.length - 1];
-  const isClosed =
+  const closed =
     Math.abs(first[0] - last[0]) < 1e-9 &&
     Math.abs(first[1] - last[1]) < 1e-9;
-  const open = isClosed ? coords.slice(0, -1) : coords;
+  const open = closed ? coords.slice(0, -1) : coords;
   if (open.length < 3) return coords;
-  return [...open, open[0]];   // always append closing point
+  return [...open, open[0]];
 }
 
 function slopesToGeoJSON(slopes: SlopePolygon[]): GeoJSON.FeatureCollection {
@@ -39,7 +38,8 @@ function slopesToGeoJSON(slopes: SlopePolygon[]): GeoJSON.FeatureCollection {
         },
         properties: {
           id:     slope.id,
-          name:   slope.name || '',
+          // Guard against null/empty name to avoid MapLibre 'Expected number' error
+          name:   slope.name && slope.name.length > 0 ? slope.name : '',
           color:  COLOR_MAP[slope.color] ?? COLOR_MAP.gray,
           resort: slope.resort ?? ''
         }
@@ -63,18 +63,21 @@ function addLayers(map: maplibregl.Map): void {
   if (!map.getLayer(SLOPES_LINE_LAYER)) {
     map.addLayer({
       id: SLOPES_LINE_LAYER, type: 'line', source: SLOPES_SOURCE,
-      paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-opacity': 1 }
+      paint: { 'line-color': ['get', 'color'], 'line-width': 2.5 }
     });
   }
   if (!map.getLayer(SLOPES_LABEL_LAYER)) {
     map.addLayer({
       id: SLOPES_LABEL_LAYER, type: 'symbol', source: SLOPES_SOURCE,
       layout: {
-        'text-field': ['get', 'name'], 'text-size': 12,
-        'text-font': ['Open Sans Regular'], 'text-anchor': 'center', 'text-max-width': 10
+        'text-field':     ['get', 'name'],
+        'text-size':      12,
+        'text-font':      ['Noto Sans Regular'],
+        'text-anchor':    'center',
+        'text-max-width': 10
       },
       paint: {
-        'text-color': '#1a1a2e',
+        'text-color':      '#1a1a2e',
         'text-halo-color': 'rgba(255,255,255,0.9)',
         'text-halo-width': 2
       }
@@ -91,20 +94,21 @@ export function initSlopesLayer(map: maplibregl.Map): void {
 }
 
 export function renderSlopes(map: maplibregl.Map, slopes: SlopePolygon[]): void {
-  // Guarantee layers exist
-  addLayers(map);
-
-  const geojson = slopesToGeoJSON(slopes);
-  const src = map.getSource(SLOPES_SOURCE) as maplibregl.GeoJSONSource | undefined;
-  if (src) {
-    src.setData(geojson);
-  } else {
-    // Retry after style tick
-    map.once('styledata', () => {
-      addLayers(map);
-      (map.getSource(SLOPES_SOURCE) as maplibregl.GeoJSONSource)?.setData(geojson);
-    });
+  // Ensure layers exist (idempotent)
+  if (map.isStyleLoaded()) {
+    addLayers(map);
+    const src = map.getSource(SLOPES_SOURCE) as maplibregl.GeoJSONSource | undefined;
+    if (src) {
+      src.setData(slopesToGeoJSON(slopes));
+      return;
+    }
   }
+  // Style not ready — wait and retry
+  map.once('styledata', () => {
+    addLayers(map);
+    (map.getSource(SLOPES_SOURCE) as maplibregl.GeoJSONSource)
+      ?.setData(slopesToGeoJSON(slopes));
+  });
 }
 
 export function onSlopeClick(

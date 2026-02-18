@@ -61,17 +61,19 @@ export default function App() {
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
     mapRef.current = map;
 
-    // 1. Background layers (terrain, hillshade)
+    // 1. Background: terrain + hillshade
     addElevationLayers(map);
     addSlopeAngleLayer(map);
 
-    // 2. Slope polygons — added BEFORE OSM so OSM goes underneath via beforeLayerId
+    // 2. Slopes layer — must be added BEFORE OSM so it sits on top
+    //    initSlopesLayer waits for styledata internally
     initSlopesLayer(map);
 
-    // 3. OSM layers — inserted BELOW slopes-fill so they never block click events
+    // 3. OSM — loaded async; safeBeforeId inside loadOsmLayers handles
+    //    the case where slopes-fill doesn't exist yet at fetch-complete time
     loadOsmLayers(map, SLOPES_FILL_LAYER);
 
-    // 4. Drawing tool (preview layers go on top of everything)
+    // 4. Drawing tool — preview layers added last = always on top
     drawingToolRef.current = new DrawingTool(map, (coordinates) => {
       const id = uuid();
       const newSlope: SlopePolygon = {
@@ -88,7 +90,7 @@ export default function App() {
       setTimeout(() => setSelectedSlope(newSlope), 80);
     });
 
-    // 5. Click handler on slopes
+    // 5. Slope click handler
     onSlopeClick(map, (slope) => {
       if (isDrawingRef.current) return;
       const fresh = storageService.getSlopes().find(s => s.id === slope.id);
@@ -129,8 +131,7 @@ export default function App() {
 
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
     const map = mapRef.current;
-    // Always take coordinates from storage — the prop may be stale
-    const stored = storageService.getSlopes().find(s => s.id === slope.id);
+    const stored  = storageService.getSlopes().find(s => s.id === slope.id);
     const coords  = stored?.coordinates ?? slope.coordinates;
     const updated: SlopePolygon = {
       ...slope,
