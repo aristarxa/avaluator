@@ -47,11 +47,13 @@ export default function App() {
     renderSlopes(map, all);
   }, []);
 
+  /** Recalculate risk colors for all slopes with new weather, persist + render */
   const recalcAndRender = useCallback((currentWeather: WeatherData) => {
     const map = mapRef.current;
     if (!map) return;
     const slopes = storageService.getSlopes().map(s => ({
-      ...s, color: calculateRiskColor(s, currentWeather)
+      ...s,
+      color: calculateRiskColor(s, currentWeather)
     }));
     slopes.forEach(s => storageService.saveSlope(s));
     slopesRef.current = slopes;
@@ -60,28 +62,17 @@ export default function App() {
 
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
     mapRef.current = map;
-
-    // 1. Background: terrain + hillshade
     addElevationLayers(map);
     addSlopeAngleLayer(map);
-
-    // 2. Slopes layer — must be added BEFORE OSM so it sits on top
-    //    initSlopesLayer waits for styledata internally
     initSlopesLayer(map);
-
-    // 3. OSM — loaded async; safeBeforeId inside loadOsmLayers handles
-    //    the case where slopes-fill doesn't exist yet at fetch-complete time
     loadOsmLayers(map, SLOPES_FILL_LAYER);
 
-    // 4. Drawing tool — preview layers added last = always on top
     drawingToolRef.current = new DrawingTool(map, (coordinates) => {
       const id = uuid();
       const newSlope: SlopePolygon = {
         id, name: '', resort: null,
         elevationMin: null, elevationMax: null,
-        coordinates,
-        slopeScore: defaultSlopeScore(),
-        color: 'gray'
+        coordinates, slopeScore: defaultSlopeScore(), color: 'gray'
       };
       storageService.saveSlope(newSlope);
       syncMap(map);
@@ -90,14 +81,12 @@ export default function App() {
       setTimeout(() => setSelectedSlope(newSlope), 80);
     });
 
-    // 5. Slope click handler
     onSlopeClick(map, (slope) => {
       if (isDrawingRef.current) return;
       const fresh = storageService.getSlopes().find(s => s.id === slope.id);
       setSelectedSlope(fresh ?? slope);
     }, () => slopesRef.current);
 
-    // 6. Initial render of persisted slopes
     syncMap(map);
   }, [syncMap]);
 
@@ -130,7 +119,7 @@ export default function App() {
   }, []);
 
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
-    const map = mapRef.current;
+    const map     = mapRef.current;
     const stored  = storageService.getSlopes().find(s => s.id === slope.id);
     const coords  = stored?.coordinates ?? slope.coordinates;
     const updated: SlopePolygon = {
@@ -153,12 +142,12 @@ export default function App() {
     setSelectedSlope(null);
   }, [syncMap]);
 
+  /** Called both from WeatherSheet's per-band save AND from save-all */
   const handleSaveWeather = useCallback((data: WeatherData) => {
     storageService.saveWeather(data);
     setWeather(data);
     recalcAndRender(data);
-    setWeatherOpen(false);
-    setActiveTool(null);
+    // Do NOT close the sheet on per-band save (onClose is separate)
   }, [recalcAndRender]);
 
   const handleCloseWeather = useCallback(() => {
@@ -181,14 +170,19 @@ export default function App() {
 
       {activeTool === 'draw' && (
         <div style={{
-          position: 'fixed', top: '16px', left: '50%',
+          position: 'fixed', top: '20px', left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(21,101,192,0.92)', color: '#fff',
-          padding: '10px 20px', borderRadius: '20px',
+          background: 'rgba(0,122,255,0.88)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          color: '#fff',
+          padding: '10px 22px', borderRadius: '24px',
           fontSize: '14px', fontWeight: 600, zIndex: 25,
-          pointerEvents: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+          pointerEvents: 'none',
+          boxShadow: '0 4px 20px rgba(0,122,255,0.4)',
+          border: '1px solid rgba(255,255,255,0.3)'
         }}>
-          Нажмите на карту — рисуйте склон. Замкните на первую точку.
+          Рисуйте склон — замкните на первую точку
         </div>
       )}
 

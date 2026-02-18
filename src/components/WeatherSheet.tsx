@@ -18,26 +18,23 @@ const BAND_LABELS: Record<ElevationBand, string> = {
 };
 
 const CHECKLIST: { key: keyof WeatherScore; label: string; desc: string }[] = [
-  { key: 'dangerLevel3',    label: 'Региональный уровень лавиноопасности 3+', desc: 'Уровень лавиноопасности 3 или выше (+1 балл)' },
-  { key: 'weakLayers',      label: 'Долгоживущие лавинные проблемы', desc: 'Есть слабые слои (lawis.at) (+1 балл)' },
-  { key: 'slabAvalanche',   label: 'Лавины из доски', desc: 'Признаки схода досковых лавин сегодня/вчера (+1 балл)' },
-  { key: 'instability',     label: 'Нестабильность снега', desc: 'Вумфинг, трещины, «барабанные» звуки (+1 балл)' },
-  { key: 'recentLoading',   label: 'Недавнее возрастание нагрузки', desc: 'За 48ч: ≥ 30см снега, ветеровой перенос, дождь (+1 балл)' },
-  { key: 'criticalWarming', label: 'Критическое потепление', desc: 'Повышение температуры от 0°С, мокрый снег (+1 балл)' },
+  { key: 'dangerLevel3',    label: 'Региональный уровень опасности 3+', desc: 'Уровень лавиноопасности 3 или выше' },
+  { key: 'weakLayers',      label: 'Долгоживущие лавинные проблемы',    desc: 'Есть слабые слои (lawis.at)' },
+  { key: 'slabAvalanche',   label: 'Лавины из доски',                   desc: 'Признаки схода сегодня / вчера' },
+  { key: 'instability',     label: 'Нестабильность снега',              desc: 'Вумфинг, трещины, «барабанный» звук' },
+  { key: 'recentLoading',   label: 'Недавнее возрастание нагрузки',     desc: 'За 48ч: ≥30 см снега, ветер, дождь' },
+  { key: 'criticalWarming', label: 'Критическое потепление',            desc: 'Потепление от 0°С, мокрый снег' },
 ];
 
-const RISK_COLORS = { 0: '#4CAF50', 1: '#4CAF50', 2: '#FFC107', 3: '#FFC107', 4: '#FFC107', 5: '#F44336', 6: '#F44336' };
+const scoreColor = (s: number) =>
+  s <= 1 ? '#34C759' : s <= 3 ? '#FF9F0A' : '#FF3B30';
 
 export default function WeatherSheet({ weather, onSave, onClose, visible }: Props) {
   const [local, setLocal] = useState<WeatherData>(() => ({ ...weather }));
   const [expanded, setExpanded] = useState<ElevationBand | null>(null);
   const startYRef = useRef<number | null>(null);
 
-  // Sync when parent weather changes (e.g. initial load)
   React.useEffect(() => { setLocal({ ...weather }); }, [weather]);
-
-  const toggleBand = (band: ElevationBand) =>
-    setExpanded(prev => prev === band ? null : band);
 
   const updateField = (band: ElevationBand, key: keyof WeatherScore, value: boolean) => {
     setLocal(prev => ({
@@ -46,17 +43,30 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
     }));
   };
 
+  /** Save band: stamp lastUpdated so risk calculator picks it up */
   const saveBand = (band: ElevationBand) => {
-    setLocal(prev => ({
-      ...prev,
-      [band]: { ...prev[band], lastUpdated: new Date().toISOString() }
-    }));
+    const updated = {
+      ...local,
+      [band]: { ...local[band], lastUpdated: new Date().toISOString() }
+    };
+    setLocal(updated);
     setExpanded(null);
+    // Auto-trigger recalc immediately
+    onSave(updated);
   };
 
   const handleSaveAll = () => {
-    onSave(local);
-    onClose();
+    // Stamp lastUpdated for any band that has at least one flag set but wasn't saved per-band
+    const stamped = { ...local };
+    for (const band of ALL_BANDS) {
+      const ws = stamped[band];
+      const hasFlags = ['dangerLevel3','weakLayers','slabAvalanche','instability','recentLoading','criticalWarming']
+        .some(k => ws[k as keyof WeatherScore]);
+      if (!ws.lastUpdated && hasFlags) {
+        stamped[band] = { ...ws, lastUpdated: new Date().toISOString() };
+      }
+    }
+    onSave(stamped);
   };
 
   const handleTouchStart = (e: React.TouchEvent) => { startYRef.current = e.touches[0].clientY; };
@@ -66,7 +76,7 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
     startYRef.current = null;
   };
 
-  const formatDate = (iso: string | null) => {
+  const fmt = (iso: string | null) => {
     if (!iso) return null;
     const d = new Date(iso);
     return `${d.getDate().toString().padStart(2,'0')}.${(d.getMonth()+1).toString().padStart(2,'0')} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
@@ -75,7 +85,11 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 30, pointerEvents: visible ? 'auto' : 'none' }}>
       {visible && (
-        <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.3)' }} />
+        <div onClick={onClose} style={{
+          position: 'absolute', inset: 0,
+          background: 'rgba(0,0,0,0.25)',
+          backdropFilter: 'blur(2px)'
+        }} />
       )}
 
       <div
@@ -83,90 +97,120 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
         onTouchEnd={handleTouchEnd}
         style={{
           position: 'absolute', bottom: 0, left: 0, right: 0,
-          background: '#fff', borderRadius: '20px 20px 0 0',
-          padding: '0 20px 32px', maxHeight: '85vh', overflowY: 'auto',
-          boxShadow: '0 -4px 24px rgba(0,0,0,0.18)',
+          background: 'rgba(255,255,255,0.72)',
+          backdropFilter: 'blur(40px) saturate(180%)',
+          WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+          borderRadius: '28px 28px 0 0',
+          padding: '0 20px 40px',
+          maxHeight: '88vh', overflowY: 'auto',
+          boxShadow: '0 -1px 0 rgba(255,255,255,0.5) inset, 0 -8px 40px rgba(0,0,0,0.18)',
+          border: '1px solid rgba(255,255,255,0.6)',
+          borderBottom: 'none',
           transform: visible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 0.3s cubic-bezier(0.32,0,0.67,0)'
+          transition: 'transform 0.4s cubic-bezier(0.32,0,0.67,0)'
         }}
       >
-        {/* Handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 4px' }}>
-          <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: '#e0e0e0' }} />
+        {/* Drag handle */}
+        <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 6px' }}>
+          <div style={{ width: '36px', height: '5px', borderRadius: '3px', background: 'rgba(60,60,67,0.3)' }} />
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '18px', fontWeight: 700, color: '#1a1a2e' }}>Погодные условия</h2>
-          <button onClick={onClose} style={closeBtnStyle} aria-label="Закрыть">✕</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#1c1c1e', letterSpacing: '-0.3px' }}>Погода</h2>
+          <button onClick={onClose} style={glassCloseBtnStyle}>✕</button>
         </div>
-
-        <p style={{ fontSize: '13px', color: '#888', marginBottom: '16px' }}>
-          Заполните оценку для каждого диапазона высот. Система автоматически перекрасит склоны.
+        <p style={{ fontSize: '13px', color: 'rgba(60,60,67,0.6)', marginBottom: '20px', lineHeight: 1.4 }}>
+          Сохраните диапазон — склоны перекрасятся автоматически
         </p>
 
         {ALL_BANDS.map(band => {
-          const ws = local[band] ?? defaultWeatherScore();
+          const ws   = local[band] ?? defaultWeatherScore();
           const score = calcWeatherBandScore(ws);
-          const hasData = ws.lastUpdated !== null;
-          const isOpen = expanded === band;
-          const dotColor = hasData ? (RISK_COLORS[score as keyof typeof RISK_COLORS] ?? '#999') : '#ccc';
+          const hasData = !!ws.lastUpdated;
+          const isOpen  = expanded === band;
+          const dot = hasData ? scoreColor(score) : 'rgba(60,60,67,0.2)';
 
           return (
-            <div key={band} style={{ marginBottom: '8px' }}>
-              {/* Band header */}
+            <div key={band} style={{ marginBottom: '10px' }}>
               <button
-                onClick={() => toggleBand(band)}
+                onClick={() => setExpanded(isOpen ? null : band)}
                 style={{
                   width: '100%', padding: '14px 16px',
-                  background: isOpen ? '#EEF2FF' : '#f5f5f5',
-                  border: isOpen ? '1.5px solid #1565C0' : '1.5px solid transparent',
-                  borderRadius: isOpen ? '12px 12px 0 0' : '12px',
-                  cursor: 'pointer', display: 'flex',
-                  justifyContent: 'space-between', alignItems: 'center',
-                  transition: 'all 0.15s'
+                  background: isOpen
+                    ? 'rgba(0,122,255,0.12)'
+                    : 'rgba(118,118,128,0.12)',
+                  border: isOpen ? '1px solid rgba(0,122,255,0.35)' : '1px solid transparent',
+                  borderRadius: isOpen ? '18px 18px 0 0' : '18px',
+                  cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  transition: 'all 0.2s'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                  <div style={{ width: '12px', height: '12px', borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
-                  <span style={{ fontSize: '15px', fontWeight: 600, color: '#1a1a2e' }}>{BAND_LABELS[band]}</span>
+                  <div style={{
+                    width: '11px', height: '11px', borderRadius: '50%',
+                    background: dot,
+                    boxShadow: hasData ? `0 0 6px ${dot}99` : 'none'
+                  }} />
+                  <span style={{ fontSize: '15px', fontWeight: 600, color: '#1c1c1e' }}>{BAND_LABELS[band]}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  {hasData && (
-                    <span style={{ fontSize: '13px', color: '#666' }}>
-                      {score} балл · {formatDate(ws.lastUpdated)}
-                    </span>
-                  )}
-                  {!hasData && <span style={{ fontSize: '12px', color: '#aaa' }}>Не заполнено</span>}
-                  <span style={{ fontSize: '18px', color: '#666', transform: isOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>⌃</span>
+                  {hasData
+                    ? <span style={{ fontSize: '12px', color: 'rgba(60,60,67,0.55)' }}>{score} б · {fmt(ws.lastUpdated)}</span>
+                    : <span style={{ fontSize: '12px', color: 'rgba(60,60,67,0.38)' }}>Не заполнено</span>
+                  }
+                  <span style={{
+                    fontSize: '12px', color: 'rgba(60,60,67,0.4)',
+                    display: 'inline-block',
+                    transform: isOpen ? 'rotate(180deg)' : 'none',
+                    transition: 'transform 0.2s'
+                  }}>▼</span>
                 </div>
               </button>
 
-              {/* Expanded form */}
               {isOpen && (
                 <div style={{
-                  background: '#fafbff', border: '1.5px solid #1565C0',
-                  borderTop: 'none', borderRadius: '0 0 12px 12px',
-                  padding: '16px 16px 12px'
+                  background: 'rgba(0,122,255,0.06)',
+                  border: '1px solid rgba(0,122,255,0.2)',
+                  borderTop: 'none',
+                  borderRadius: '0 0 18px 18px',
+                  padding: '16px 16px 14px'
                 }}>
-                  {CHECKLIST.filter(item => item.key !== 'lastUpdated').map(({ key, label, desc }) => (
-                    <label key={key} style={checkLabelStyle}>
-                      <input
-                        type="checkbox"
-                        checked={!!(ws[key as keyof WeatherScore])}
-                        onChange={e => updateField(band, key, e.target.checked)}
-                        style={{ marginRight: '10px', accentColor: '#1565C0', width: '18px', height: '18px', flexShrink: 0, marginTop: '2px' }}
-                      />
+                  {CHECKLIST.map(({ key, label, desc }) => (
+                    <label key={key} style={{
+                      display: 'flex', alignItems: 'flex-start',
+                      gap: '12px', padding: '10px 0',
+                      borderBottom: '1px solid rgba(60,60,67,0.08)',
+                      cursor: 'pointer'
+                    }}>
+                      <div
+                        onClick={() => updateField(band, key, !ws[key as keyof WeatherScore])}
+                        style={{
+                          width: '22px', height: '22px', borderRadius: '7px', flexShrink: 0, marginTop: '1px',
+                          background: ws[key as keyof WeatherScore] ? '#007AFF' : 'rgba(118,118,128,0.18)',
+                          border: ws[key as keyof WeatherScore] ? 'none' : '1px solid rgba(60,60,67,0.2)',
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          transition: 'all 0.15s', cursor: 'pointer'
+                        }}
+                      >
+                        {ws[key as keyof WeatherScore] && (
+                          <span style={{ color: '#fff', fontSize: '13px', fontWeight: 700 }}>✓</span>
+                        )}
+                      </div>
                       <div>
-                        <div style={{ fontWeight: 600, fontSize: '14px', color: '#1a1a2e' }}>{label}</div>
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>{desc}</div>
+                        <div style={{ fontWeight: 600, fontSize: '14px', color: '#1c1c1e' }}>{label}</div>
+                        <div style={{ fontSize: '12px', color: 'rgba(60,60,67,0.55)', marginTop: '2px' }}>{desc}</div>
                       </div>
                     </label>
                   ))}
-                  <button
-                    onClick={() => saveBand(band)}
-                    style={saveBandBtnStyle}
-                  >
-                    Сохранить диапазон
+                  <button onClick={() => saveBand(band)} style={{
+                    marginTop: '14px', width: '100%', padding: '13px',
+                    fontSize: '15px', fontWeight: 600,
+                    background: '#007AFF', color: '#fff',
+                    border: 'none', borderRadius: '14px', cursor: 'pointer',
+                    boxShadow: '0 4px 14px rgba(0,122,255,0.35)'
+                  }}>
+                    Сохранить и пересчитать ↑
                   </button>
                 </div>
               )}
@@ -174,31 +218,24 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
           );
         })}
 
-        <button onClick={handleSaveAll} style={{ ...saveBtnStyle, marginTop: '16px' }}>
-          Сохранить и пересчитать риски
+        <button onClick={handleSaveAll} style={{
+          width: '100%', padding: '15px', fontSize: '16px', fontWeight: 700,
+          background: 'rgba(28,28,30,0.88)', color: '#fff',
+          border: 'none', borderRadius: '16px', cursor: 'pointer',
+          marginTop: '8px',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.22)'
+        }}>
+          Сохранить все диапазоны
         </button>
       </div>
     </div>
   );
 }
 
-const closeBtnStyle: React.CSSProperties = {
-  width: '32px', height: '32px', borderRadius: '50%',
-  border: 'none', background: '#f0f0f0', cursor: 'pointer',
-  fontSize: '14px', color: '#666'
-};
-const checkLabelStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'flex-start', cursor: 'pointer',
-  padding: '10px 0', borderBottom: '1px solid #eef'
-};
-const saveBandBtnStyle: React.CSSProperties = {
-  marginTop: '12px', width: '100%', padding: '12px',
-  fontSize: '14px', fontWeight: 700,
-  background: '#1565C0', color: '#fff',
-  border: 'none', borderRadius: '10px', cursor: 'pointer'
-};
-const saveBtnStyle: React.CSSProperties = {
-  width: '100%', padding: '14px', fontSize: '16px',
-  fontWeight: 700, background: '#1a1a2e', color: '#fff',
-  border: 'none', borderRadius: '12px', cursor: 'pointer'
+const glassCloseBtnStyle: React.CSSProperties = {
+  width: '30px', height: '30px', borderRadius: '50%',
+  border: 'none',
+  background: 'rgba(118,118,128,0.18)',
+  cursor: 'pointer', fontSize: '13px', color: 'rgba(60,60,67,0.6)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center'
 };

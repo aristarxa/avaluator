@@ -9,111 +9,71 @@ interface Props {
   onToggleSlopeAngle: () => void;
 }
 
-const DrawIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="3,21 12,3 21,21 12,17" />
-    <line x1="3" y1="21" x2="12" y2="17" />
-  </svg>
-);
-
-const WeatherIcon = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25" />
-    <line x1="8" y1="19" x2="8" y2="21" />
-    <line x1="8" y1="13" x2="8" y2="15" />
-    <line x1="16" y1="19" x2="16" y2="21" />
-    <line x1="16" y1="13" x2="16" y2="15" />
-    <line x1="12" y1="21" x2="12" y2="23" />
-    <line x1="12" y1="15" x2="12" y2="17" />
-  </svg>
-);
-
-const SlopeAngleIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 20 L21 4" />
-    <path d="M3 20 L21 20" />
-    <path d="M21 4 L21 20" />
-  </svg>
-);
-
 export default function Toolbar({ activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle }: Props) {
-  const handleDraw = () => onToolSelect(activeTool === 'draw' ? null : 'draw');
-  const handleWeather = () => onToolSelect(activeTool === 'weather' ? null : 'weather');
+  const tools: { id: ActiveTool | 'slope'; icon: string; label: string }[] = [
+    { id: 'draw',    icon: '✏️',  label: 'Склон' },
+    { id: 'weather', icon: '🌨️', label: 'Погода' },
+    { id: 'slope',   icon: '📐',  label: 'Уклон' },
+  ];
 
   return (
-    <div style={{
-      position: 'fixed',
-      bottom: '32px',
-      left: '16px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '12px',
-      zIndex: 20
-    }}>
-      {/* Slope angle toggle */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <button
-          onClick={onToggleSlopeAngle}
-          style={toolBtnStyle(slopeAngleVisible)}
-          aria-label="Углы склонов"
-          title="Тепловая разметка углов"
-        >
-          <SlopeAngleIcon />
-        </button>
-        <span style={labelStyle}>Углы</span>
-      </div>
+    <>
+      {/* Floating pill toolbar */}
+      <div style={{
+        position: 'fixed',
+        bottom: '24px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 20,
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        padding: '8px 10px',
+        background: 'rgba(255,255,255,0.72)',
+        backdropFilter: 'blur(40px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
+        borderRadius: '28px',
+        boxShadow: '0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 32px rgba(0,0,0,0.18)',
+        border: '1px solid rgba(255,255,255,0.55)'
+      }}>
+        {tools.map(({ id, icon, label }) => {
+          const isSlope  = id === 'slope';
+          const isActive = isSlope ? slopeAngleVisible : activeTool === id;
 
-      {/* Draw slopes */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <button
-          onClick={handleDraw}
-          style={toolBtnStyle(activeTool === 'draw')}
-          aria-label="Разметка склона"
-        >
-          <DrawIcon />
-        </button>
-        <span style={labelStyle}>Разметка</span>
+          return (
+            <button
+              key={id}
+              onClick={() => {
+                if (isSlope) onToggleSlopeAngle();
+                else onToolSelect(id as ActiveTool);
+              }}
+              style={{
+                display: 'flex', flexDirection: 'column',
+                alignItems: 'center', justifyContent: 'center',
+                gap: '3px',
+                padding: '10px 18px',
+                borderRadius: '20px',
+                border: 'none',
+                background: isActive
+                  ? 'rgba(0,122,255,0.18)'
+                  : 'transparent',
+                cursor: 'pointer',
+                transition: 'all 0.18s',
+                minWidth: '64px'
+              }}
+            >
+              <span style={{ fontSize: '22px', lineHeight: 1 }}>{icon}</span>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: isActive ? 700 : 500,
+                color: isActive ? '#007AFF' : 'rgba(60,60,67,0.75)',
+                letterSpacing: '-0.1px',
+                lineHeight: 1.2
+              }}>{label}</span>
+            </button>
+          );
+        })}
       </div>
-
-      {/* Weather conditions */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-        <button
-          onClick={handleWeather}
-          style={toolBtnStyle(activeTool === 'weather')}
-          aria-label="Погодные условия"
-        >
-          <WeatherIcon />
-        </button>
-        <span style={labelStyle}>Погода</span>
-      </div>
-    </div>
+    </>
   );
 }
-
-function toolBtnStyle(active: boolean): React.CSSProperties {
-  return {
-    width: '52px',
-    height: '52px',
-    borderRadius: '50%',
-    border: active ? '3px solid #1565C0' : '2px solid rgba(255,255,255,0.6)',
-    background: active ? 'rgba(21,101,192,0.15)' : 'rgba(255,255,255,0.92)',
-    boxShadow: active
-      ? '0 0 0 3px rgba(21,101,192,0.25), 0 3px 10px rgba(0,0,0,0.2)'
-      : '0 2px 8px rgba(0,0,0,0.2)',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    color: active ? '#1565C0' : '#1a1a2e',
-    transition: 'all 0.15s ease'
-  };
-}
-
-const labelStyle: React.CSSProperties = {
-  fontSize: '10px',
-  color: 'rgba(255,255,255,0.9)',
-  textShadow: '0 1px 3px rgba(0,0,0,0.6)',
-  fontWeight: 600,
-  letterSpacing: '0.3px',
-  userSelect: 'none'
-};
