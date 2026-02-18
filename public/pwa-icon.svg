@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#1a1a2e"/>
+  <!-- Mountain outline -->
+  <polygon points="256,60 470,420 42,420" fill="none" stroke="#FFC107" stroke-width="24" stroke-linejoin="round"/>
+  <!-- Danger zone (red inner triangle) -->
+  <polygon points="256,180 380,420 132,420" fill="#F44336" opacity="0.85"/>
+  <!-- Contour lines -->
+  <line x1="160" y1="320" x2="352" y2="320" stroke="white" stroke-width="10" opacity="0.45"/>
+  <line x1="130" y1="370" x2="382" y2="370" stroke="white" stroke-width="10" opacity="0.35"/>
+  <!-- App name -->
+  <text x="256" y="480" font-family="Arial, sans-serif" font-size="52" font-weight="bold"
+        fill="white" text-anchor="middle" opacity="0.9">A</text>
+</svg>
