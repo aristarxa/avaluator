@@ -10,7 +10,7 @@ import InstallPrompt from './components/InstallPrompt';
 import { addElevationLayers } from './map/addElevationLayers';
 import { addSlopeAngleLayer, toggleSlopeAngleLayer } from './map/addSlopeAngleLayer';
 import { loadOsmLayers } from './map/loadOsmLayers';
-import { initSlopesLayer, renderSlopes, onSlopeClick } from './map/slopesLayer';
+import { initSlopesLayer, renderSlopes, onSlopeClick, SLOPES_FILL_LAYER } from './map/slopesLayer';
 
 import { DrawingTool } from './tools/DrawingTool';
 import { storageService } from './services/storage';
@@ -37,77 +37,67 @@ export default function App() {
   const [slopeAngleVisible, setSlopeAngleVisible] = useState(false);
   const [selectedSlope,     setSelectedSlope]     = useState<SlopePolygon | null>(null);
   const [weatherOpen,       setWeatherOpen]       = useState(false);
-  const [weather,           setWeather]           = useState<WeatherData>(() => storageService.getWeather());
+  const [weather,           setWeather]           = useState<WeatherData>(
+    () => storageService.getWeather()
+  );
 
-  /** Read all slopes from storage, update ref, push to map */
-  const syncMap = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
+  const syncMap = useCallback((map: maplibregl.Map) => {
     const all = storageService.getSlopes();
     slopesRef.current = all;
     renderSlopes(map, all);
   }, []);
 
   const recalcAndRender = useCallback((currentWeather: WeatherData) => {
+    const map = mapRef.current;
+    if (!map) return;
     const slopes = storageService.getSlopes().map(s => ({
-      ...s,
-      color: calculateRiskColor(s, currentWeather)
+      ...s, color: calculateRiskColor(s, currentWeather)
     }));
     slopes.forEach(s => storageService.saveSlope(s));
     slopesRef.current = slopes;
-    const map = mapRef.current;
-    if (map) renderSlopes(map, slopes);
+    renderSlopes(map, slopes);
   }, []);
 
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
     mapRef.current = map;
 
+    // 1. Background layers (terrain, hillshade)
     addElevationLayers(map);
     addSlopeAngleLayer(map);
-    loadOsmLayers(map);
+
+    // 2. Slope polygons — added BEFORE OSM so OSM goes underneath via beforeLayerId
     initSlopesLayer(map);
 
-    // Render persisted slopes once style is ready
-    const doInitialRender = () => {
-      const saved = storageService.getSlopes();
-      slopesRef.current = saved;
-      renderSlopes(map, saved);
-    };
-    if (map.isStyleLoaded()) doInitialRender();
-    else map.once('styledata', doInitialRender);
+    // 3. OSM layers — inserted BELOW slopes-fill so they never block click events
+    loadOsmLayers(map, SLOPES_FILL_LAYER);
 
+    // 4. Drawing tool (preview layers go on top of everything)
+    drawingToolRef.current = new DrawingTool(map, (coordinates) => {
+      const id = uuid();
+      const newSlope: SlopePolygon = {
+        id, name: '', resort: null,
+        elevationMin: null, elevationMax: null,
+        coordinates,
+        slopeScore: defaultSlopeScore(),
+        color: 'gray'
+      };
+      storageService.saveSlope(newSlope);
+      syncMap(map);
+      isDrawingRef.current = false;
+      setActiveTool(null);
+      setTimeout(() => setSelectedSlope(newSlope), 80);
+    });
+
+    // 5. Click handler on slopes
     onSlopeClick(map, (slope) => {
       if (isDrawingRef.current) return;
       const fresh = storageService.getSlopes().find(s => s.id === slope.id);
       setSelectedSlope(fresh ?? slope);
     }, () => slopesRef.current);
 
-    drawingToolRef.current = new DrawingTool(map, (coordinates) => {
-      const id = uuid();
-      const newSlope: SlopePolygon = {
-        id,
-        name: '',
-        resort: null,
-        elevationMin: null,
-        elevationMax: null,
-        coordinates,
-        slopeScore: defaultSlopeScore(),
-        color: 'gray'
-      };
-
-      // 1. Persist
-      storageService.saveSlope(newSlope);
-      // 2. Update ref
-      slopesRef.current = storageService.getSlopes();
-      // 3. Push to map immediately
-      renderSlopes(map, slopesRef.current);
-      // 4. Reset drawing state
-      isDrawingRef.current = false;
-      setActiveTool(null);
-      // 5. Open sheet after brief delay so map renders first
-      setTimeout(() => setSelectedSlope(newSlope), 80);
-    });
-  }, []);
+    // 6. Initial render of persisted slopes
+    syncMap(map);
+  }, [syncMap]);
 
   const handleToolSelect = useCallback((tool: ActiveTool) => {
     const drawing = drawingToolRef.current;
@@ -117,7 +107,7 @@ export default function App() {
       drawing.activate();
       setActiveTool('draw');
     } else {
-      if (drawing?.isActive()) drawing.deactivate();
+      drawing?.isActive() && drawing.deactivate();
       isDrawingRef.current = false;
       setActiveTool(tool);
       if (tool === 'weather') setWeatherOpen(true);
@@ -138,34 +128,29 @@ export default function App() {
   }, []);
 
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
-    // Re-read coordinates from storage to avoid stale prop reference
+    const map = mapRef.current;
+    // Always take coordinates from storage — the prop may be stale
     const stored = storageService.getSlopes().find(s => s.id === slope.id);
-    const coords = stored?.coordinates ?? slope.coordinates;
-
+    const coords  = stored?.coordinates ?? slope.coordinates;
     const updated: SlopePolygon = {
       ...slope,
       coordinates: coords,
-      color: calculateRiskColor(slope, storageService.getWeather())
+      color: calculateRiskColor(
+        { ...slope, coordinates: coords },
+        storageService.getWeather()
+      )
     };
     storageService.saveSlope(updated);
-    // Force immediate map update
-    slopesRef.current = storageService.getSlopes();
-    const map = mapRef.current;
-    if (map) {
-      renderSlopes(map, slopesRef.current);
-      // Belt-and-suspenders: also re-render after next animation frame
-      requestAnimationFrame(() => renderSlopes(map, slopesRef.current));
-    }
+    if (map) syncMap(map);
     setSelectedSlope(null);
-  }, []);
+  }, [syncMap]);
 
   const handleDeleteSlope = useCallback((id: string) => {
-    storageService.deleteSlope(id);
-    slopesRef.current = storageService.getSlopes();
     const map = mapRef.current;
-    if (map) renderSlopes(map, slopesRef.current);
+    storageService.deleteSlope(id);
+    if (map) syncMap(map);
     setSelectedSlope(null);
-  }, []);
+  }, [syncMap]);
 
   const handleSaveWeather = useCallback((data: WeatherData) => {
     storageService.saveWeather(data);

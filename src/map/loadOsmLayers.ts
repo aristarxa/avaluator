@@ -1,9 +1,7 @@
 import maplibregl from 'maplibre-gl';
 
 const CACHE_KEY = 'osm_layers_cache';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-// Krasnaya Polyana bounding box [south, west, north, east]
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const KRASNAYA_POLYANA_BBOX = '43.60,40.00,43.75,40.10';
 
 interface OsmCache {
@@ -18,18 +16,13 @@ function getCachedOsmData(): GeoJSON.FeatureCollection | null {
     const cache: OsmCache = JSON.parse(raw);
     if (Date.now() - cache.timestamp > CACHE_TTL_MS) return null;
     return cache.geojson;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 function setCachedOsmData(geojson: GeoJSON.FeatureCollection): void {
   try {
-    const cache: OsmCache = { timestamp: Date.now(), geojson };
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // storage might be full
-  }
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), geojson }));
+  } catch { /* storage full */ }
 }
 
 async function fetchOsmData(): Promise<GeoJSON.FeatureCollection> {
@@ -41,67 +34,64 @@ async function fetchOsmData(): Promise<GeoJSON.FeatureCollection> {
 );
 out geom;`;
 
-  const url = 'https://overpass-api.de/api/interpreter';
-  const response = await fetch(url, {
+  const response = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST',
     body: query,
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
   });
-
   if (!response.ok) throw new Error(`Overpass API error: ${response.status}`);
-
   const osmJson = await response.json();
-
-  // Convert OSM JSON to GeoJSON using osmtogeojson
   const osmtogeojson = (await import('osmtogeojson')).default;
   return osmtogeojson(osmJson) as GeoJSON.FeatureCollection;
 }
 
-function addOsmLayersToMap(map: maplibregl.Map, geojson: GeoJSON.FeatureCollection): void {
-  const pistes: GeoJSON.Feature[] = [];
+/**
+ * Adds OSM source+layer pairs.
+ * beforeLayerId: if provided, all OSM layers are inserted BEFORE that layer
+ * so slopes/drawing always render on top.
+ */
+function addOsmLayersToMap(
+  map: maplibregl.Map,
+  geojson: GeoJSON.FeatureCollection,
+  beforeLayerId?: string
+): void {
+  const pistes: GeoJSON.Feature[]    = [];
   const aerialways: GeoJSON.Feature[] = [];
-  const waterways: GeoJSON.Feature[] = [];
+  const waterways: GeoJSON.Feature[]  = [];
 
-  for (const feature of geojson.features) {
-    const tags = (feature.properties as Record<string, string | null | undefined>) || {};
-    if (tags['piste:type']) pistes.push(feature);
-    else if (tags['aerialway']) aerialways.push(feature);
-    else if (tags['waterway'] === 'stream') waterways.push(feature);
+  for (const f of geojson.features) {
+    const t = (f.properties || {}) as Record<string, string>;
+    if (t['piste:type'])          pistes.push(f);
+    else if (t['aerialway'])      aerialways.push(f);
+    else if (t['waterway'] === 'stream') waterways.push(f);
   }
 
-  const addLayerSafe = (
+  const add = (
     sourceId: string,
     features: GeoJSON.Feature[],
     lineColor: string,
-    labelField: string,
-    labelColor: string
+    labelColor: string,
+    labelField: string
   ) => {
     const fc: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
-
     if (!map.getSource(sourceId)) {
       map.addSource(sourceId, { type: 'geojson', data: fc });
     } else {
       (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData(fc);
     }
 
-    if (!map.getLayer(`${sourceId}-line`)) {
-      map.addLayer({
-        id: `${sourceId}-line`,
-        type: 'line',
-        source: sourceId,
-        paint: {
-          'line-color': lineColor,
-          'line-width': 2,
-          'line-opacity': 0.8
-        }
-      });
-    }
+    const lineId  = `${sourceId}-line`;
+    const labelId = `${sourceId}-label`;
 
-    if (!map.getLayer(`${sourceId}-label`)) {
+    if (!map.getLayer(lineId)) {
       map.addLayer({
-        id: `${sourceId}-label`,
-        type: 'symbol',
-        source: sourceId,
+        id: lineId, type: 'line', source: sourceId,
+        paint: { 'line-color': lineColor, 'line-width': 2, 'line-opacity': 0.8 }
+      }, beforeLayerId);  // <-- INSERT BELOW slopes layer
+    }
+    if (!map.getLayer(labelId)) {
+      map.addLayer({
+        id: labelId, type: 'symbol', source: sourceId,
         layout: {
           'symbol-placement': 'line',
           'text-field': ['coalesce', ['get', labelField], ['get', 'name'], ''],
@@ -115,31 +105,27 @@ function addOsmLayersToMap(map: maplibregl.Map, geojson: GeoJSON.FeatureCollecti
           'text-halo-color': 'rgba(255,255,255,0.9)',
           'text-halo-width': 1.5
         }
-      });
+      }, beforeLayerId);  // <-- INSERT BELOW slopes layer
     }
   };
 
-  addLayerSafe('osm-pistes', pistes, '#1565C0', 'piste:name', '#1565C0');
-  addLayerSafe('osm-aerialways', aerialways, '#E65100', 'name', '#E65100');
-  addLayerSafe('osm-waterways', waterways, '#0277BD', 'name', '#0277BD');
+  add('osm-pistes',    pistes,    '#1565C0', '#1565C0', 'piste:name');
+  add('osm-aerialways',aerialways,'#E65100', '#E65100', 'name');
+  add('osm-waterways', waterways, '#0277BD', '#0277BD', 'name');
 }
 
-/**
- * Step 1.4 — Loads OSM data (pistes, aerialways, streams) and adds them as map layers.
- * Results are cached in localStorage for 24 hours.
- */
-export async function loadOsmLayers(map: maplibregl.Map): Promise<void> {
+export async function loadOsmLayers(
+  map: maplibregl.Map,
+  beforeLayerId?: string   // pass 'slopes-fill' so OSM goes under slopes
+): Promise<void> {
   try {
     let geojson = getCachedOsmData();
-
     if (!geojson) {
       geojson = await fetchOsmData();
       setCachedOsmData(geojson);
     }
-
-    addOsmLayersToMap(map, geojson);
+    addOsmLayersToMap(map, geojson, beforeLayerId);
   } catch (err) {
-    console.warn('Failed to load OSM layers:', err);
-    // Graceful degradation — app works without OSM data
+    console.warn('[Avalancher] Failed to load OSM layers:', err);
   }
 }
