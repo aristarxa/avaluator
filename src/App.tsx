@@ -26,63 +26,83 @@ function uuid(): string {
   });
 }
 
+/** Central helper: read all slopes from storage, render to map */
+function syncSlopesToMap(map: maplibregl.Map, slopesRef: React.MutableRefObject<SlopePolygon[]>) {
+  const all = storageService.getSlopes();
+  slopesRef.current = all;
+  renderSlopes(map, all);
+}
+
 export default function App() {
-  const mapViewRef   = useRef<MapViewHandle>(null);
+  const mapViewRef    = useRef<MapViewHandle>(null);
   const drawingToolRef = useRef<DrawingTool | null>(null);
-  const slopesRef    = useRef<SlopePolygon[]>([]);
-  const isDrawingRef = useRef(false);
+  const slopesRef     = useRef<SlopePolygon[]>([]);
+  const isDrawingRef  = useRef(false);
+  // Keep a ref to the map so callbacks always have fresh access
+  const mapRef        = useRef<maplibregl.Map | null>(null);
 
-  const [activeTool,       setActiveTool]       = useState<ActiveTool>(null);
-  const [slopeAngleVisible,setSlopeAngleVisible] = useState(false);
-  const [selectedSlope,    setSelectedSlope]     = useState<SlopePolygon | null>(null);
-  const [weatherOpen,      setWeatherOpen]       = useState(false);
-  const [weather,          setWeather]           = useState<WeatherData>(() => storageService.getWeather());
+  const [activeTool,        setActiveTool]        = useState<ActiveTool>(null);
+  const [slopeAngleVisible, setSlopeAngleVisible]  = useState(false);
+  const [selectedSlope,     setSelectedSlope]      = useState<SlopePolygon | null>(null);
+  const [weatherOpen,       setWeatherOpen]        = useState(false);
+  const [weather,           setWeather]            = useState<WeatherData>(() => storageService.getWeather());
 
+  // ── recalc all colors & re-render ──────────────────────────────
   const recalcAndRender = useCallback((currentWeather: WeatherData) => {
-    const map = mapViewRef.current?.getMap();
+    const map = mapRef.current;
     if (!map) return;
     const slopes = storageService.getSlopes().map(s => ({
-      ...s, color: calculateRiskColor(s, currentWeather)
+      ...s,
+      color: calculateRiskColor(s, currentWeather)
     }));
     slopes.forEach(s => storageService.saveSlope(s));
     slopesRef.current = slopes;
     renderSlopes(map, slopes);
   }, []);
 
+  // ── map load ───────────────────────────────────────────────────
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
-    // async layers — fire-and-forget, degrade gracefully on error
+    mapRef.current = map;
+
     addElevationLayers(map);
-    // sync layer — no external deps
     addSlopeAngleLayer(map);
     loadOsmLayers(map);
     initSlopesLayer(map);
 
-    const saved = storageService.getSlopes();
-    slopesRef.current = saved;
-    renderSlopes(map, saved);
+    // Render persisted slopes immediately
+    syncSlopesToMap(map, slopesRef);
 
+    // Slope polygon click handler
     onSlopeClick(map, (slope) => {
       if (isDrawingRef.current) return;
-      setSelectedSlope(slope);
+      // Re-read fresh data from storage in case it was updated
+      const fresh = storageService.getSlopes().find(s => s.id === slope.id);
+      setSelectedSlope(fresh ?? slope);
     }, () => slopesRef.current);
 
+    // Drawing tool
     drawingToolRef.current = new DrawingTool(map, (coordinates) => {
       const newSlope: SlopePolygon = {
-        id: uuid(), name: '', resort: null,
-        elevationMin: null, elevationMax: null,
+        id: uuid(),
+        name: '',
+        resort: null,
+        elevationMin: null,
+        elevationMax: null,
         coordinates,
         slopeScore: defaultSlopeScore(),
         color: 'gray'
       };
+      // Save first, then sync map, then open sheet
       storageService.saveSlope(newSlope);
-      slopesRef.current = [...slopesRef.current, newSlope];
-      renderSlopes(map, slopesRef.current);
+      syncSlopesToMap(map, slopesRef);
       isDrawingRef.current = false;
-      setSelectedSlope(newSlope);
       setActiveTool(null);
+      // Small delay so sheet opens after drawing cursor resets
+      setTimeout(() => setSelectedSlope(newSlope), 50);
     });
-  }, [recalcAndRender]);
+  }, []);
 
+  // ── tool selection ─────────────────────────────────────────────
   const handleToolSelect = useCallback((tool: ActiveTool) => {
     const drawing = drawingToolRef.current;
     if (tool === 'draw') {
@@ -105,29 +125,32 @@ export default function App() {
     }
   }, [activeTool]);
 
+  // ── slope angle toggle ─────────────────────────────────────────
   const handleToggleSlopeAngle = useCallback(() => {
-    const map = mapViewRef.current?.getMap();
+    const map = mapRef.current;
     if (!map) return;
     setSlopeAngleVisible(toggleSlopeAngleLayer(map));
   }, []);
 
+  // ── save slope ─────────────────────────────────────────────────
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
-    const updated = { ...slope, color: calculateRiskColor(slope, storageService.getWeather()) };
+    const map = mapRef.current;
+    const updatedColor = calculateRiskColor(slope, storageService.getWeather());
+    const updated: SlopePolygon = { ...slope, color: updatedColor };
     storageService.saveSlope(updated);
-    slopesRef.current = storageService.getSlopes();
-    const map = mapViewRef.current?.getMap();
-    if (map) renderSlopes(map, slopesRef.current);
+    if (map) syncSlopesToMap(map, slopesRef);
     setSelectedSlope(null);
   }, []);
 
+  // ── delete slope ───────────────────────────────────────────────
   const handleDeleteSlope = useCallback((id: string) => {
+    const map = mapRef.current;
     storageService.deleteSlope(id);
-    slopesRef.current = storageService.getSlopes();
-    const map = mapViewRef.current?.getMap();
-    if (map) renderSlopes(map, slopesRef.current);
+    if (map) syncSlopesToMap(map, slopesRef);
     setSelectedSlope(null);
   }, []);
 
+  // ── save weather ───────────────────────────────────────────────
   const handleSaveWeather = useCallback((data: WeatherData) => {
     storageService.saveWeather(data);
     setWeather(data);

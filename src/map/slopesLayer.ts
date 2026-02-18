@@ -13,37 +13,44 @@ const COLOR_MAP: Record<RiskColor, string> = {
   red:    '#F44336'
 };
 
+function closedRing(coords: [number, number][]): [number, number][] {
+  if (coords.length < 2) return coords;
+  const first = coords[0];
+  const last  = coords[coords.length - 1];
+  // Only add closing point if not already closed
+  if (first[0] === last[0] && first[1] === last[1]) return coords;
+  return [...coords, first];
+}
+
 function slopesToGeoJSON(slopes: SlopePolygon[]): GeoJSON.FeatureCollection {
   return {
     type: 'FeatureCollection',
-    features: slopes.map(slope => ({
-      type: 'Feature',
-      id: slope.id,
-      geometry: {
-        type: 'Polygon',
-        coordinates: [slope.coordinates.length > 0
-          ? [...slope.coordinates, slope.coordinates[0]]
-          : []]
-      },
-      properties: {
-        id: slope.id,
-        name: slope.name || '',
-        color: COLOR_MAP[slope.color] ?? COLOR_MAP.gray,
-        resort: slope.resort ?? ''
-      }
-    }))
+    features: slopes
+      .filter(s => s.coordinates.length >= 3)  // skip invalid polygons
+      .map(slope => ({
+        type: 'Feature' as const,
+        // Do NOT set Feature.id when using promoteId — causes conflict.
+        // id is carried only in properties.
+        geometry: {
+          type: 'Polygon' as const,
+          coordinates: [closedRing(slope.coordinates)]
+        },
+        properties: {
+          id:     slope.id,
+          name:   slope.name || '',
+          color:  COLOR_MAP[slope.color] ?? COLOR_MAP.gray,
+          resort: slope.resort ?? ''
+        }
+      }))
   };
 }
 
-/**
- * Step 2.4 — Initialize slope polygon layers on the map.
- */
 export function initSlopesLayer(map: maplibregl.Map): void {
   if (!map.getSource(SLOPES_SOURCE)) {
     map.addSource(SLOPES_SOURCE, {
       type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] },
-      promoteId: 'id'
+      // promoteId removed — caused conflict with Feature.id
+      data: { type: 'FeatureCollection', features: [] }
     });
   }
 
@@ -53,7 +60,7 @@ export function initSlopesLayer(map: maplibregl.Map): void {
       type: 'fill',
       source: SLOPES_SOURCE,
       paint: {
-        'fill-color': ['get', 'color'],
+        'fill-color':   ['get', 'color'],
         'fill-opacity': 0.4
       }
     });
@@ -65,8 +72,8 @@ export function initSlopesLayer(map: maplibregl.Map): void {
       type: 'line',
       source: SLOPES_SOURCE,
       paint: {
-        'line-color': ['get', 'color'],
-        'line-width': 2,
+        'line-color':   ['get', 'color'],
+        'line-width':   2,
         'line-opacity': 0.9
       }
     });
@@ -78,30 +85,27 @@ export function initSlopesLayer(map: maplibregl.Map): void {
       type: 'symbol',
       source: SLOPES_SOURCE,
       layout: {
-        'text-field': ['get', 'name'],
-        'text-size': 12,
-        'text-font': ['Open Sans Regular'],
-        'text-anchor': 'center',
-        'text-max-width': 10
+        'text-field':      ['get', 'name'],
+        'text-size':       12,
+        'text-font':       ['Open Sans Regular'],
+        'text-anchor':     'center',
+        'text-max-width':  10
       },
       paint: {
-        'text-color': '#1a1a2e',
-        'text-halo-color': 'rgba(255,255,255,0.9)',
-        'text-halo-width': 2
+        'text-color':       '#1a1a2e',
+        'text-halo-color':  'rgba(255,255,255,0.9)',
+        'text-halo-width':  2
       }
     });
   }
 }
 
-/** Update the slope polygons displayed on the map. */
 export function renderSlopes(map: maplibregl.Map, slopes: SlopePolygon[]): void {
-  const source = map.getSource(SLOPES_SOURCE) as maplibregl.GeoJSONSource | undefined;
-  if (source) {
-    source.setData(slopesToGeoJSON(slopes));
-  }
+  if (!map.getSource(SLOPES_SOURCE)) return;
+  const geojson = slopesToGeoJSON(slopes);
+  (map.getSource(SLOPES_SOURCE) as maplibregl.GeoJSONSource).setData(geojson);
 }
 
-/** Register click handler for slope polygons. */
 export function onSlopeClick(
   map: maplibregl.Map,
   callback: (slope: SlopePolygon) => void,
@@ -109,21 +113,12 @@ export function onSlopeClick(
 ): void {
   map.on('click', SLOPES_FILL_LAYER, (e) => {
     if (!e.features || e.features.length === 0) return;
-    const feature = e.features[0];
-    const id = feature.properties?.id as string;
+    const id = e.features[0].properties?.id as string | undefined;
     if (!id) return;
     const slope = getSlopesRef().find(s => s.id === id);
-    if (slope) {
-      e.preventDefault?.();
-      callback(slope);
-    }
+    if (slope) callback(slope);
   });
 
-  // Change cursor on hover
-  map.on('mouseenter', SLOPES_FILL_LAYER, () => {
-    map.getCanvas().style.cursor = 'pointer';
-  });
-  map.on('mouseleave', SLOPES_FILL_LAYER, () => {
-    map.getCanvas().style.cursor = '';
-  });
+  map.on('mouseenter', SLOPES_FILL_LAYER, () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', SLOPES_FILL_LAYER, () => { map.getCanvas().style.cursor = ''; });
 }
