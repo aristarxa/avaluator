@@ -5,6 +5,7 @@ import MapView, { type MapViewHandle } from './components/MapView';
 import Toolbar, { type ActiveTool } from './components/Toolbar';
 import SlopeSheet from './components/SlopeSheet';
 import WeatherSheet from './components/WeatherSheet';
+import InstallPrompt from './components/InstallPrompt';
 
 import { addElevationLayers } from './map/addElevationLayers';
 import { addSlopeAngleLayer, toggleSlopeAngleLayer } from './map/addSlopeAngleLayer';
@@ -18,7 +19,6 @@ import { calculateRiskColor } from './services/riskCalculator';
 import type { SlopePolygon, WeatherData } from './types';
 import { defaultWeatherData, defaultSlopeScore } from './types';
 
-// Simple UUID v4 generator (no external dep)
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
     const r = (Math.random() * 16) | 0;
@@ -30,6 +30,8 @@ export default function App() {
   const mapViewRef = useRef<MapViewHandle>(null);
   const drawingToolRef = useRef<DrawingTool | null>(null);
   const slopesRef = useRef<SlopePolygon[]>([]);
+  // Track drawing mode in a ref to avoid stale closures in map handlers
+  const isDrawingRef = useRef(false);
 
   const [activeTool, setActiveTool] = useState<ActiveTool>(null);
   const [slopeAngleVisible, setSlopeAngleVisible] = useState(false);
@@ -37,9 +39,7 @@ export default function App() {
   const [weatherOpen, setWeatherOpen] = useState(false);
   const [weather, setWeather] = useState<WeatherData>(() => storageService.getWeather());
 
-  // ----------------------------------------------------------------
-  // Recalculate all slope colors and re-render
-  // ----------------------------------------------------------------
+  // ── Recalculate all slope colors and re-render ───────────────────
   const recalcAndRender = useCallback((currentWeather: WeatherData) => {
     const map = mapViewRef.current?.getMap();
     if (!map) return;
@@ -52,30 +52,29 @@ export default function App() {
     renderSlopes(map, slopes);
   }, []);
 
-  // ----------------------------------------------------------------
-  // Map load handler
-  // ----------------------------------------------------------------
+  // ── Map load ─────────────────────────────────────────────────────
   const handleMapLoad = useCallback((map: maplibregl.Map) => {
-    // Add terrain/contour/hillshade
+    // async layers — fire and forget, they degrade gracefully
     addElevationLayers(map);
-    // Add slope angle layer (hidden by default)
     addSlopeAngleLayer(map);
-    // Load OSM pistes, aerialways, waterways
     loadOsmLayers(map);
-    // Init slope polygons layer
     initSlopesLayer(map);
 
-    // Load and render saved slopes
     const savedSlopes = storageService.getSlopes();
     slopesRef.current = savedSlopes;
     renderSlopes(map, savedSlopes);
 
-    // Click handler for slope polygons
-    onSlopeClick(map, (slope) => {
-      setSelectedSlope(slope);
-    }, () => slopesRef.current);
+    // Slope polygon click — guarded: skip when drawing tool is active
+    onSlopeClick(
+      map,
+      (slope) => {
+        if (isDrawingRef.current) return;  // ← fix: no sheet during drawing
+        setSelectedSlope(slope);
+      },
+      () => slopesRef.current
+    );
 
-    // Init drawing tool
+    // Drawing tool
     drawingToolRef.current = new DrawingTool(map, (coordinates) => {
       const newSlope: SlopePolygon = {
         id: uuid(),
@@ -90,42 +89,41 @@ export default function App() {
       storageService.saveSlope(newSlope);
       slopesRef.current = [...slopesRef.current, newSlope];
       renderSlopes(map, slopesRef.current);
-      // Open sheet immediately to fill info
+      isDrawingRef.current = false;
       setSelectedSlope(newSlope);
       setActiveTool(null);
     });
   }, [recalcAndRender]);
 
-  // ----------------------------------------------------------------
-  // Toolbar: tool selection
-  // ----------------------------------------------------------------
+  // ── Tool selection ───────────────────────────────────────────────
   const handleToolSelect = useCallback((tool: ActiveTool) => {
     const drawing = drawingToolRef.current;
-    if (!drawing) return;
 
     if (tool === 'draw') {
+      if (!drawing) return;
       setActiveTool('draw');
+      isDrawingRef.current = true;
       drawing.activate();
     } else {
-      // Deactivate drawing if it was active
-      if (activeTool === 'draw' && drawing.isActive()) {
+      if (drawing?.isActive()) {
         drawing.deactivate();
       }
+      isDrawingRef.current = false;
       setActiveTool(tool);
       if (tool === 'weather') setWeatherOpen(true);
     }
-  }, [activeTool]);
+  }, []);
 
-  // When activeTool changes away from 'draw', deactivate
   useEffect(() => {
-    if (activeTool !== 'draw' && drawingToolRef.current?.isActive()) {
-      drawingToolRef.current.deactivate();
+    if (activeTool !== 'draw') {
+      isDrawingRef.current = false;
+      if (drawingToolRef.current?.isActive()) {
+        drawingToolRef.current.deactivate();
+      }
     }
   }, [activeTool]);
 
-  // ----------------------------------------------------------------
-  // Slope angle toggle
-  // ----------------------------------------------------------------
+  // ── Slope angle toggle ───────────────────────────────────────────
   const handleToggleSlopeAngle = useCallback(() => {
     const map = mapViewRef.current?.getMap();
     if (!map) return;
@@ -133,25 +131,18 @@ export default function App() {
     setSlopeAngleVisible(visible);
   }, []);
 
-  // ----------------------------------------------------------------
-  // Save slope
-  // ----------------------------------------------------------------
+  // ── Save slope ───────────────────────────────────────────────────
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
     const currentWeather = storageService.getWeather();
-    const updatedSlope = {
-      ...slope,
-      color: calculateRiskColor(slope, currentWeather)
-    };
-    storageService.saveSlope(updatedSlope);
+    const updated = { ...slope, color: calculateRiskColor(slope, currentWeather) };
+    storageService.saveSlope(updated);
     slopesRef.current = storageService.getSlopes();
     const map = mapViewRef.current?.getMap();
     if (map) renderSlopes(map, slopesRef.current);
     setSelectedSlope(null);
   }, []);
 
-  // ----------------------------------------------------------------
-  // Delete slope
-  // ----------------------------------------------------------------
+  // ── Delete slope ─────────────────────────────────────────────────
   const handleDeleteSlope = useCallback((id: string) => {
     storageService.deleteSlope(id);
     slopesRef.current = storageService.getSlopes();
@@ -160,9 +151,7 @@ export default function App() {
     setSelectedSlope(null);
   }, []);
 
-  // ----------------------------------------------------------------
-  // Save weather
-  // ----------------------------------------------------------------
+  // ── Save weather ─────────────────────────────────────────────────
   const handleSaveWeather = useCallback((data: WeatherData) => {
     storageService.saveWeather(data);
     setWeather(data);
@@ -171,18 +160,14 @@ export default function App() {
     setActiveTool(null);
   }, [recalcAndRender]);
 
-  // Close weather sheet
   const handleCloseWeather = useCallback(() => {
     setWeatherOpen(false);
-    setActiveTool(null);
-  }, []);
+    if (activeTool === 'weather') setActiveTool(null);
+  }, [activeTool]);
 
   return (
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
-      <MapView
-        ref={mapViewRef}
-        onMapLoad={handleMapLoad}
-      />
+      <MapView ref={mapViewRef} onMapLoad={handleMapLoad} />
 
       <Toolbar
         activeTool={activeTool}
@@ -191,17 +176,16 @@ export default function App() {
         onToggleSlopeAngle={handleToggleSlopeAngle}
       />
 
-      {/* Drawing mode hint */}
+      <InstallPrompt />
+
       {activeTool === 'draw' && (
         <div style={{
           position: 'fixed', top: '16px', left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(21,101,192,0.92)',
-          color: '#fff', padding: '10px 20px',
-          borderRadius: '20px', fontSize: '14px',
-          fontWeight: 600, zIndex: 25,
-          pointerEvents: 'none',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
+          background: 'rgba(21,101,192,0.92)', color: '#fff',
+          padding: '10px 20px', borderRadius: '20px',
+          fontSize: '14px', fontWeight: 600, zIndex: 25,
+          pointerEvents: 'none', boxShadow: '0 2px 12px rgba(0,0,0,0.3)'
         }}>
           Нажмите на карту — рисуйте склон. Замкните на первую точку.
         </div>

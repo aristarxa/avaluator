@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "vitest"
+    "test": "vitest run"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.1",
+    "maplibre-contour": "^0.1.2",
     "osmtogeojson": "^3.0.0-beta.5",
     "@turf/turf": "^7.1.0",
     "react": "^18.3.1",
