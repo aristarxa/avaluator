@@ -1,26 +1,21 @@
 import maplibregl from 'maplibre-gl';
 
-const PREVIEW_SOURCE = 'drawing-preview';
-const PREVIEW_LINE_LAYER = 'drawing-line';
-const PREVIEW_FILL_LAYER = 'drawing-fill';
+const PREVIEW_SOURCE       = 'drawing-preview';
+const PREVIEW_FILL_LAYER   = 'drawing-fill';
+const PREVIEW_LINE_LAYER   = 'drawing-line';
 const PREVIEW_POINTS_LAYER = 'drawing-points';
-const CLOSE_RADIUS_PX = 15;
+const CLOSE_RADIUS_PX      = 20;  // px radius to snap-close polygon
 
-type Coordinate = [number, number];
+type Coord = [number, number];  // [lng, lat]
 
-/**
- * Step 2.3 — Drawing tool for polygon creation on a MapLibre map.
- * Handles click-based point placement, preview rendering,
- * polygon closing (by clicking near first point or on deactivate).
- */
 export class DrawingTool {
   private map: maplibregl.Map;
-  private points: Coordinate[] = [];
+  private points: Coord[] = [];
   private active = false;
-  private onComplete: (coordinates: Coordinate[]) => void;
-  private clickHandler: ((e: maplibregl.MapMouseEvent) => void) | null = null;
+  private onComplete: (coordinates: Coord[]) => void;
+  private clickHandler: ((e: maplibregl.MapMouseEvent & { originalEvent: MouseEvent }) => void) | null = null;
 
-  constructor(map: maplibregl.Map, onComplete: (coordinates: Coordinate[]) => void) {
+  constructor(map: maplibregl.Map, onComplete: (coordinates: Coord[]) => void) {
     this.map = map;
     this.onComplete = onComplete;
     this.initPreviewLayers();
@@ -28,87 +23,71 @@ export class DrawingTool {
 
   private initPreviewLayers(): void {
     const map = this.map;
+    if (map.getSource(PREVIEW_SOURCE)) return;
 
-    if (!map.getSource(PREVIEW_SOURCE)) {
-      map.addSource(PREVIEW_SOURCE, {
-        type: 'geojson',
-        data: this.buildPreviewGeoJSON()
-      });
-    }
+    map.addSource(PREVIEW_SOURCE, {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
 
-    if (!map.getLayer(PREVIEW_FILL_LAYER)) {
-      map.addLayer({
-        id: PREVIEW_FILL_LAYER,
-        type: 'fill',
-        source: PREVIEW_SOURCE,
-        filter: ['==', '$type', 'Polygon'],
-        paint: {
-          'fill-color': '#808080',
-          'fill-opacity': 0.3
-        }
-      });
-    }
+    map.addLayer({
+      id: PREVIEW_FILL_LAYER,
+      type: 'fill',
+      source: PREVIEW_SOURCE,
+      filter: ['==', '$type', 'Polygon'],
+      paint: { 'fill-color': '#1565C0', 'fill-opacity': 0.2 }
+    });
 
-    if (!map.getLayer(PREVIEW_LINE_LAYER)) {
-      map.addLayer({
-        id: PREVIEW_LINE_LAYER,
-        type: 'line',
-        source: PREVIEW_SOURCE,
-        filter: ['in', '$type', 'LineString', 'Polygon'],
-        paint: {
-          'line-color': '#ffffff',
-          'line-width': 2,
-          'line-dasharray': [4, 2]
-        }
-      });
-    }
+    map.addLayer({
+      id: PREVIEW_LINE_LAYER,
+      type: 'line',
+      source: PREVIEW_SOURCE,
+      paint: {
+        'line-color': '#ffffff',
+        'line-width': 2,
+        'line-dasharray': [4, 2]
+      }
+    });
 
-    if (!map.getLayer(PREVIEW_POINTS_LAYER)) {
-      map.addLayer({
-        id: PREVIEW_POINTS_LAYER,
-        type: 'circle',
-        source: PREVIEW_SOURCE,
-        filter: ['==', '$type', 'Point'],
-        paint: {
-          'circle-radius': 5,
-          'circle-color': '#ffffff',
-          'circle-stroke-color': '#333333',
-          'circle-stroke-width': 2
-        }
-      });
-    }
+    map.addLayer({
+      id: PREVIEW_POINTS_LAYER,
+      type: 'circle',
+      source: PREVIEW_SOURCE,
+      filter: ['==', '$type', 'Point'],
+      paint: {
+        'circle-radius': 5,
+        'circle-color': '#ffffff',
+        'circle-stroke-color': '#1565C0',
+        'circle-stroke-width': 2
+      }
+    });
   }
 
-  private buildPreviewGeoJSON(): GeoJSON.FeatureCollection {
-    if (this.points.length === 0) {
-      return { type: 'FeatureCollection', features: [] };
-    }
-
+  private buildGeoJSON(): GeoJSON.FeatureCollection {
     const features: GeoJSON.Feature[] = [];
+    const pts = this.points;
 
-    // Point markers
-    for (const pt of this.points) {
+    // Dot markers for each placed point
+    pts.forEach(p => features.push({
+      type: 'Feature',
+      geometry: { type: 'Point', coordinates: p },
+      properties: {}
+    }));
+
+    // Preview line
+    if (pts.length >= 2) {
       features.push({
         type: 'Feature',
-        geometry: { type: 'Point', coordinates: pt },
+        geometry: { type: 'LineString', coordinates: pts },
         properties: {}
       });
     }
 
-    // Line connecting points
-    if (this.points.length >= 2) {
+    // Preview filled polygon (closed)
+    if (pts.length >= 3) {
       features.push({
         type: 'Feature',
-        geometry: { type: 'LineString', coordinates: this.points },
-        properties: {}
-      });
-    }
-
-    // Close preview polygon if 3+ points
-    if (this.points.length >= 3) {
-      features.push({
-        type: 'Feature',
-        geometry: { type: 'Polygon', coordinates: [[...this.points, this.points[0]]] },
+        geometry: { type: 'Polygon', coordinates: [[...pts, pts[0]]] },
         properties: {}
       });
     }
@@ -117,43 +96,44 @@ export class DrawingTool {
   }
 
   private updatePreview(): void {
-    const source = this.map.getSource(PREVIEW_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    source?.setData(this.buildPreviewGeoJSON());
+    (this.map.getSource(PREVIEW_SOURCE) as maplibregl.GeoJSONSource)
+      ?.setData(this.buildGeoJSON());
   }
 
   private clearPreview(): void {
-    const source = this.map.getSource(PREVIEW_SOURCE) as maplibregl.GeoJSONSource | undefined;
-    source?.setData({ type: 'FeatureCollection', features: [] });
+    (this.map.getSource(PREVIEW_SOURCE) as maplibregl.GeoJSONSource)
+      ?.setData({ type: 'FeatureCollection', features: [] });
   }
 
-  /** Returns screen distance in pixels between a map point and a coordinate */
-  private screenDistance(a: Coordinate, b: Coordinate): number {
-    const pa = this.map.project(a as maplibregl.LngLatLike);
-    const pb = this.map.project(b as maplibregl.LngLatLike);
-    return Math.sqrt((pa.x - pb.x) ** 2 + (pa.y - pb.y) ** 2);
+  /** Pixel distance between two [lng,lat] coords on screen */
+  private pxDist(a: Coord, b: Coord): number {
+    const pa = this.map.project(new maplibregl.LngLat(a[0], a[1]));
+    const pb = this.map.project(new maplibregl.LngLat(b[0], b[1]));
+    return Math.hypot(pa.x - pb.x, pa.y - pb.y);
   }
 
   activate(): void {
     if (this.active) return;
     this.active = true;
     this.points = [];
+    this.clearPreview();
     this.map.getCanvas().style.cursor = 'crosshair';
 
-    this.clickHandler = (e: maplibregl.MapMouseEvent) => {
-      const lng = e.lngLat.lng;
-      const lat = e.lngLat.lat;
-      const clickedCoord: Coordinate = [lng, lat];
+    this.clickHandler = (e) => {
+      // If this click was already handled by a slope polygon — ignore
+      if (e.originalEvent.defaultPrevented) return;
 
-      // Check if clicking near the first point to close the polygon
+      const coord: Coord = [e.lngLat.lng, e.lngLat.lat];
+
+      // Snap-close if clicking near first point (min 3 points already placed)
       if (this.points.length >= 3) {
-        const distToFirst = this.screenDistance(clickedCoord, this.points[0]);
-        if (distToFirst <= CLOSE_RADIUS_PX) {
+        if (this.pxDist(coord, this.points[0]) <= CLOSE_RADIUS_PX) {
           this.finishPolygon();
           return;
         }
       }
 
-      this.points.push(clickedCoord);
+      this.points.push(coord);
       this.updatePreview();
     };
 
@@ -178,6 +158,7 @@ export class DrawingTool {
   }
 
   private finishPolygon(): void {
+    // Pass raw (unclosed) points — slopesLayer.ts handles closing
     const coords = [...this.points];
     this.reset();
     this.onComplete(coords);
