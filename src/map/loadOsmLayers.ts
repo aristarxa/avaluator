@@ -2,30 +2,50 @@ import maplibregl from 'maplibre-gl';
 
 const CACHE_KEY    = 'osm_layers_cache';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const BBOX         = '43.60,40.00,43.75,40.10';
+
+/**
+ * Bounding box covering ALL four Krasnaya Polyana resorts:
+ *   Rosa Khutor, Gazprom / Laura, Alpika-Service, Gorki Gorod
+ * lat: 43.60 – 43.72   lon: 40.00 – 40.30
+ */
+const BBOX = '43.60,40.00,43.72,40.30';
 
 interface OsmCache {
   timestamp: number;
   geojson: GeoJSON.FeatureCollection;
 }
 
-// OSM piste:difficulty → standard ski resort colors
-const PISTE_DIFFICULTY_COLOR: Record<string, string> = {
+// ─── Piste difficulty → standard ski resort colours ──────────────────────────
+const PISTE_COLOR: Record<string, string> = {
   novice:       '#4CAF50',  // green
   easy:         '#4CAF50',  // green
   intermediate: '#2196F3',  // blue
   advanced:     '#F44336',  // red
-  expert:       '#212121',  // black
-  freeride:     '#FF9800',  // orange (off-piste)
-  extreme:      '#212121'   // black
+  expert:       '#1A1A1A',  // black
+  freeride:     '#FF9800',  // orange – off-piste
+  extreme:      '#1A1A1A',  // black
 };
-const PISTE_DEFAULT_COLOR = '#2196F3'; // blue fallback
+const PISTE_DEFAULT_COLOR = '#2196F3';
 
-function getPisteColor(props: Record<string, string>): string {
+function pisteColor(props: Record<string, string>): string {
   const diff = (props['piste:difficulty'] || props['difficulty'] || '').toLowerCase();
-  return PISTE_DIFFICULTY_COLOR[diff] ?? PISTE_DEFAULT_COLOR;
+  return PISTE_COLOR[diff] ?? PISTE_DEFAULT_COLOR;
 }
 
+// ─── Aerialway line width by type ────────────────────────────────────────────
+function aerialWidth(type: string): number {
+  switch (type) {
+    case 'gondola':
+    case 'cable_car':    return 3;
+    case 'chair_lift':   return 2.5;
+    case 'drag_lift':
+    case 't-bar':
+    case 'platter':      return 1.5;
+    default:             return 2;
+  }
+}
+
+// ─── Cache helpers ────────────────────────────────────────────────────────────
 function getCached(): GeoJSON.FeatureCollection | null {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -41,14 +61,24 @@ function setCache(geojson: GeoJSON.FeatureCollection): void {
   } catch { /* storage full */ }
 }
 
+// ─── Overpass query ───────────────────────────────────────────────────────────
 async function fetchOsm(): Promise<GeoJSON.FeatureCollection> {
-  const query = `[out:json][timeout:30];
+  // Fetch:
+  //   • piste ways + relations (full geometry)
+  //   • aerialways
+  //   • ski area boundaries (leisure=ski_resort / landuse=winter_sports)
+  const query = `[out:json][timeout:60];
 (
   way["piste:type"](${BBOX});
+  relation["piste:type"](${BBOX});
   way["aerialway"](${BBOX});
-  way["waterway"="stream"](${BBOX});
+  relation["aerialway"](${BBOX});
+  way["landuse"="winter_sports"](${BBOX});
+  way["leisure"="ski_resort"](${BBOX});
+  relation["leisure"="ski_resort"](${BBOX});
 );
 out geom;`;
+
   const r = await fetch('https://overpass-api.de/api/interpreter', {
     method: 'POST', body: query,
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -59,68 +89,100 @@ out geom;`;
   return osmtogeojson(json) as GeoJSON.FeatureCollection;
 }
 
+// ─── Apply layers to map ──────────────────────────────────────────────────────
 function applyOsm(
   map: maplibregl.Map,
   geojson: GeoJSON.FeatureCollection,
   beforeLayerId?: string
 ): void {
-  // Separate pistes by difficulty for per-color styling
-  const pistesByDiff: Record<string, GeoJSON.Feature[]> = {};
-  const aerials: GeoJSON.Feature[] = [];
-  const waters: GeoJSON.Feature[]  = [];
+  const pisteLines:   GeoJSON.Feature[] = [];
+  const pisteAreas:   GeoJSON.Feature[] = [];
+  const aerials:      GeoJSON.Feature[] = [];
+  const resortAreas:  GeoJSON.Feature[] = [];
 
   for (const f of geojson.features) {
     const p = (f.properties || {}) as Record<string, string>;
-    // Attach color to properties for data-driven styling
+    const geomType = (f.geometry as GeoJSON.Geometry).type;
+
     if (p['piste:type']) {
-      const color = getPisteColor(p);
-      const diff  = (p['piste:difficulty'] || 'easy').toLowerCase();
-      if (!pistesByDiff[diff]) pistesByDiff[diff] = [];
-      pistesByDiff[diff].push({ ...f, properties: { ...p, _color: color } });
+      const color = pisteColor(p);
+      const feat  = { ...f, properties: { ...p, _color: color } };
+      if (geomType === 'Polygon' || geomType === 'MultiPolygon') {
+        pisteAreas.push(feat);
+      } else {
+        pisteLines.push(feat);
+      }
     } else if (p['aerialway']) {
-      aerials.push(f);
-    } else if (p['waterway'] === 'stream') {
-      waters.push(f);
+      aerials.push({ ...f, properties: { ...p, _width: aerialWidth(p['aerialway']) } });
+    } else if (
+      p['landuse'] === 'winter_sports' ||
+      p['leisure'] === 'ski_resort'
+    ) {
+      resortAreas.push(f);
     }
   }
 
-  const safeBeforeId = (id?: string) =>
-    id && map.getLayer(id) ? id : undefined;
-  const before = safeBeforeId(beforeLayerId);
+  const before = beforeLayerId && map.getLayer(beforeLayerId) ? beforeLayerId : undefined;
 
-  // All pistes in a single source, data-driven color from _color property
-  const allPistes = Object.values(pistesByDiff).flat();
-  const pisteFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: allPistes };
-
-  if (!map.getSource('osm-pistes')) {
-    map.addSource('osm-pistes', { type: 'geojson', data: pisteFC });
-  } else {
-    (map.getSource('osm-pistes') as maplibregl.GeoJSONSource).setData(pisteFC);
+  // ── Resort boundary fill ─────────────────────────────────────
+  const resortFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: resortAreas };
+  upsertSource(map, 'osm-resort', resortFC);
+  if (!map.getLayer('osm-resort-fill')) {
+    map.addLayer({
+      id: 'osm-resort-fill', type: 'fill', source: 'osm-resort',
+      paint: { 'fill-color': '#e8f0fe', 'fill-opacity': 0.25 }
+    }, before);
+  }
+  if (!map.getLayer('osm-resort-outline')) {
+    map.addLayer({
+      id: 'osm-resort-outline', type: 'line', source: 'osm-resort',
+      paint: { 'line-color': '#1565C0', 'line-width': 1.5, 'line-dasharray': [4, 3], 'line-opacity': 0.6 }
+    }, before);
   }
 
-  // Thick casing (white/light) for contrast on map
-  if (!map.getLayer('osm-pistes-casing')) {
+  // ── Piste area fills (polygon runs) ─────────────────────────
+  const pisteAreaFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: pisteAreas };
+  upsertSource(map, 'osm-piste-areas', pisteAreaFC);
+  if (!map.getLayer('osm-piste-areas-fill')) {
     map.addLayer({
-      id: 'osm-pistes-casing', type: 'line', source: 'osm-pistes',
+      id: 'osm-piste-areas-fill', type: 'fill', source: 'osm-piste-areas',
       paint: {
-        'line-color': 'rgba(255,255,255,0.85)',
-        'line-width': 6,
-        'line-opacity': 0.9
+        'fill-color': ['coalesce', ['get', '_color'], '#2196F3'],
+        'fill-opacity': 0.18
       }
     }, before);
   }
-  // Colored line on top of casing
+  if (!map.getLayer('osm-piste-areas-outline')) {
+    map.addLayer({
+      id: 'osm-piste-areas-outline', type: 'line', source: 'osm-piste-areas',
+      paint: {
+        'line-color': ['coalesce', ['get', '_color'], '#2196F3'],
+        'line-width': 1.5,
+        'line-opacity': 0.7
+      }
+    }, before);
+  }
+
+  // ── Piste line casings + colour ──────────────────────────────
+  const pisteLineFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: pisteLines };
+  upsertSource(map, 'osm-pistes', pisteLineFC);
+
+  if (!map.getLayer('osm-pistes-casing')) {
+    map.addLayer({
+      id: 'osm-pistes-casing', type: 'line', source: 'osm-pistes',
+      paint: { 'line-color': 'rgba(255,255,255,0.9)', 'line-width': 7, 'line-opacity': 0.85 }
+    }, before);
+  }
   if (!map.getLayer('osm-pistes-line')) {
     map.addLayer({
       id: 'osm-pistes-line', type: 'line', source: 'osm-pistes',
       paint: {
         'line-color': ['coalesce', ['get', '_color'], '#2196F3'],
-        'line-width': 3.5,
+        'line-width': 4,
         'line-opacity': 1
       }
     }, before);
   }
-  // Piste name label
   if (!map.getLayer('osm-pistes-label')) {
     map.addLayer({
       id: 'osm-pistes-label', type: 'symbol', source: 'osm-pistes',
@@ -130,7 +192,7 @@ function applyOsm(
         'text-size': 11,
         'text-font': ['Noto Sans Bold'],
         'text-max-angle': 45,
-        'text-offset': [0, -1]
+        'text-offset': [0, -1.2]
       },
       paint: {
         'text-color': ['coalesce', ['get', '_color'], '#1565C0'],
@@ -140,17 +202,31 @@ function applyOsm(
     }, before);
   }
 
-  // Aerialways (канатные дороги)
+  // ── Aerialways ───────────────────────────────────────────────
   const aerialFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: aerials };
-  if (!map.getSource('osm-aerials')) {
-    map.addSource('osm-aerials', { type: 'geojson', data: aerialFC });
-  } else {
-    (map.getSource('osm-aerials') as maplibregl.GeoJSONSource).setData(aerialFC);
+  upsertSource(map, 'osm-aerials', aerialFC);
+
+  // Support cable — thin black dashes (the rope)
+  if (!map.getLayer('osm-aerials-cable')) {
+    map.addLayer({
+      id: 'osm-aerials-cable', type: 'line', source: 'osm-aerials',
+      paint: {
+        'line-color': '#333',
+        'line-width': 1,
+        'line-dasharray': [6, 3],
+        'line-opacity': 0.7
+      }
+    }, before);
   }
+  // Coloured overlay for type-based width
   if (!map.getLayer('osm-aerials-line')) {
     map.addLayer({
       id: 'osm-aerials-line', type: 'line', source: 'osm-aerials',
-      paint: { 'line-color': '#E65100', 'line-width': 2, 'line-dasharray': [3, 2] }
+      paint: {
+        'line-color': '#BF360C',
+        'line-width': ['coalesce', ['get', '_width'], 2],
+        'line-opacity': 0.85
+      }
     }, before);
   }
   if (!map.getLayer('osm-aerials-label')) {
@@ -165,28 +241,24 @@ function applyOsm(
         'text-offset': [0, -1]
       },
       paint: {
-        'text-color': '#E65100',
+        'text-color': '#BF360C',
         'text-halo-color': 'rgba(255,255,255,0.9)',
         'text-halo-width': 1.5
       }
     }, before);
   }
+}
 
-  // Waterways
-  const waterFC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: waters };
-  if (!map.getSource('osm-waters')) {
-    map.addSource('osm-waters', { type: 'geojson', data: waterFC });
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function upsertSource(map: maplibregl.Map, id: string, data: GeoJSON.FeatureCollection) {
+  if (!map.getSource(id)) {
+    map.addSource(id, { type: 'geojson', data });
   } else {
-    (map.getSource('osm-waters') as maplibregl.GeoJSONSource).setData(waterFC);
-  }
-  if (!map.getLayer('osm-waters-line')) {
-    map.addLayer({
-      id: 'osm-waters-line', type: 'line', source: 'osm-waters',
-      paint: { 'line-color': '#0277BD', 'line-width': 1.5 }
-    }, before);
+    (map.getSource(id) as maplibregl.GeoJSONSource).setData(data);
   }
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
 export async function loadOsmLayers(
   map: maplibregl.Map,
   beforeLayerId?: string
@@ -201,4 +273,9 @@ export async function loadOsmLayers(
   } catch (err) {
     console.warn('[Avalancher] OSM load failed:', err);
   }
+}
+
+/** Force-refresh OSM cache (e.g. from dev tools) */
+export function clearOsmCache(): void {
+  localStorage.removeItem(CACHE_KEY);
 }
