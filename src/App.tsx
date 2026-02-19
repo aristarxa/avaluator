@@ -2,7 +2,7 @@ import React, { useRef, useState, useCallback, useEffect } from 'react';
 import maplibregl from 'maplibre-gl';
 
 import MapView, { type MapViewHandle } from './components/MapView';
-import Toolbar, { type ActiveTool } from './components/Toolbar';
+import Toolbar, { DesktopFABs, type ActiveTool } from './components/Toolbar';
 import SlopeSheet from './components/SlopeSheet';
 import WeatherSheet from './components/WeatherSheet';
 import InstallPrompt from './components/InstallPrompt';
@@ -18,6 +18,7 @@ import { calculateRiskColor } from './services/riskCalculator';
 
 import type { SlopePolygon, WeatherData } from './types';
 import { defaultSlopeScore } from './types';
+import { MD3 } from './theme';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -40,6 +41,15 @@ export default function App() {
   const [weather,           setWeather]           = useState<WeatherData>(
     () => storageService.getWeather()
   );
+  const [isDesktop, setIsDesktop] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    setIsDesktop(mq.matches);
+    const h = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, []);
 
   const syncMap = useCallback((map: maplibregl.Map) => {
     const all = storageService.getSlopes();
@@ -47,7 +57,6 @@ export default function App() {
     renderSlopes(map, all);
   }, []);
 
-  /** Recalculate risk colors for all slopes with new weather, persist + render */
   const recalcAndRender = useCallback((currentWeather: WeatherData) => {
     const map = mapRef.current;
     if (!map) return;
@@ -119,16 +128,12 @@ export default function App() {
   }, []);
 
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
-    const map     = mapRef.current;
-    const stored  = storageService.getSlopes().find(s => s.id === slope.id);
-    const coords  = stored?.coordinates ?? slope.coordinates;
+    const map    = mapRef.current;
+    const stored = storageService.getSlopes().find(s => s.id === slope.id);
+    const coords = stored?.coordinates ?? slope.coordinates;
     const updated: SlopePolygon = {
-      ...slope,
-      coordinates: coords,
-      color: calculateRiskColor(
-        { ...slope, coordinates: coords },
-        storageService.getWeather()
-      )
+      ...slope, coordinates: coords,
+      color: calculateRiskColor({ ...slope, coordinates: coords }, storageService.getWeather())
     };
     storageService.saveSlope(updated);
     if (map) syncMap(map);
@@ -142,12 +147,10 @@ export default function App() {
     setSelectedSlope(null);
   }, [syncMap]);
 
-  /** Called both from WeatherSheet's per-band save AND from save-all */
   const handleSaveWeather = useCallback((data: WeatherData) => {
     storageService.saveWeather(data);
     setWeather(data);
     recalcAndRender(data);
-    // Do NOT close the sheet on per-band save (onClose is separate)
   }, [recalcAndRender]);
 
   const handleCloseWeather = useCallback(() => {
@@ -159,12 +162,25 @@ export default function App() {
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
       <MapView ref={mapViewRef} onMapLoad={handleMapLoad} />
 
-      <Toolbar
-        activeTool={activeTool}
-        onToolSelect={handleToolSelect}
-        slopeAngleVisible={slopeAngleVisible}
-        onToggleSlopeAngle={handleToggleSlopeAngle}
-      />
+      {/* Desktop: FAB column top-right */}
+      {isDesktop && (
+        <DesktopFABs
+          activeTool={activeTool}
+          onToolSelect={handleToolSelect}
+          slopeAngleVisible={slopeAngleVisible}
+          onToggleSlopeAngle={handleToggleSlopeAngle}
+        />
+      )}
+
+      {/* Mobile: bottom pill */}
+      {!isDesktop && (
+        <Toolbar
+          activeTool={activeTool}
+          onToolSelect={handleToolSelect}
+          slopeAngleVisible={slopeAngleVisible}
+          onToggleSlopeAngle={handleToggleSlopeAngle}
+        />
+      )}
 
       <InstallPrompt />
 
@@ -172,15 +188,12 @@ export default function App() {
         <div style={{
           position: 'fixed', top: '20px', left: '50%',
           transform: 'translateX(-50%)',
-          background: 'rgba(0,122,255,0.88)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          color: '#fff',
-          padding: '10px 22px', borderRadius: '24px',
+          background: MD3.primary,
+          color: MD3.onPrimary,
+          padding: '10px 22px', borderRadius: MD3.radiusFull,
           fontSize: '14px', fontWeight: 600, zIndex: 25,
           pointerEvents: 'none',
-          boxShadow: '0 4px 20px rgba(0,122,255,0.4)',
-          border: '1px solid rgba(255,255,255,0.3)'
+          border: '1px solid rgba(255,255,255,0.25)'
         }}>
           Рисуйте склон — замкните на первую точку
         </div>

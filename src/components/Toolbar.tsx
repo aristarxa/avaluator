@@ -1,4 +1,5 @@
 import React from 'react';
+import { MD3 } from '../theme';
 
 export type ActiveTool = 'draw' | 'weather' | null;
 
@@ -9,71 +10,113 @@ interface Props {
   onToggleSlopeAngle: () => void;
 }
 
-export default function Toolbar({ activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle }: Props) {
-  const tools: { id: ActiveTool | 'slope'; icon: string; label: string }[] = [
-    { id: 'draw',    icon: '✏️',  label: 'Склон' },
-    { id: 'weather', icon: '🌨️', label: 'Погода' },
-    { id: 'slope',   icon: '📐',  label: 'Уклон' },
-  ];
+const tools: { id: 'draw' | 'weather' | 'slope'; icon: string; label: string }[] = [
+  { id: 'draw',    icon: '✏️',  label: 'Склон'  },
+  { id: 'weather', icon: '❄️',  label: 'Погода' },
+  { id: 'slope',   icon: '📐',  label: 'Уклон'  },
+];
 
+export default function Toolbar({ activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle }: Props) {
   return (
-    <>
-      {/* Floating pill toolbar */}
-      <div style={{
-        position: 'fixed',
-        bottom: '24px',
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 20,
+    <div style={{
+      position: 'fixed',
+      // On mobile: bottom center. On desktop: top-right vertical stack.
+      bottom: 'env(safe-area-inset-bottom, 0px)',
+      right: 0,
+      left: 0,
+      display: 'flex',
+      justifyContent: 'center',
+      alignItems: 'flex-end',
+      paddingBottom: '20px',
+      zIndex: 20,
+      pointerEvents: 'none',
+    }}>
+      {/* Mobile: horizontal pill */}
+      <div className="toolbar-mobile" style={{
         display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        padding: '8px 10px',
-        background: 'rgba(255,255,255,0.72)',
-        backdropFilter: 'blur(40px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-        borderRadius: '28px',
-        boxShadow: '0 1px 0 rgba(255,255,255,0.6) inset, 0 8px 32px rgba(0,0,0,0.18)',
-        border: '1px solid rgba(255,255,255,0.55)'
+        gap: '12px',
+        padding: '10px 16px',
+        background: MD3.surface,
+        borderRadius: MD3.radiusFull,
+        border: `1px solid ${MD3.outlineVariant}`,
+        boxShadow: 'none',
+        pointerEvents: 'auto',
       }}>
         {tools.map(({ id, icon, label }) => {
           const isSlope  = id === 'slope';
           const isActive = isSlope ? slopeAngleVisible : activeTool === id;
-
           return (
             <button
               key={id}
-              onClick={() => {
-                if (isSlope) onToggleSlopeAngle();
-                else onToolSelect(id as ActiveTool);
-              }}
+              onClick={() => isSlope ? onToggleSlopeAngle() : onToolSelect(id)}
+              title={label}
               style={{
+                width: '52px', height: '52px',
+                borderRadius: '50%',
+                border: 'none',
+                background: isActive ? MD3.primaryContainer : MD3.surfaceVariant,
+                color:      isActive ? MD3.onPrimaryContainer : MD3.onSurfaceVariant,
+                cursor: 'pointer',
                 display: 'flex', flexDirection: 'column',
                 alignItems: 'center', justifyContent: 'center',
-                gap: '3px',
-                padding: '10px 18px',
-                borderRadius: '20px',
-                border: 'none',
-                background: isActive
-                  ? 'rgba(0,122,255,0.18)'
-                  : 'transparent',
-                cursor: 'pointer',
-                transition: 'all 0.18s',
-                minWidth: '64px'
+                gap: '2px',
+                transition: 'background 0.18s',
+                boxShadow: 'none',
+                outline: isActive ? `2px solid ${MD3.primary}` : 'none',
+                outlineOffset: '2px',
               }}
             >
-              <span style={{ fontSize: '22px', lineHeight: 1 }}>{icon}</span>
+              <span style={{ fontSize: '20px', lineHeight: 1 }}>{icon}</span>
               <span style={{
-                fontSize: '11px',
-                fontWeight: isActive ? 700 : 500,
-                color: isActive ? '#007AFF' : 'rgba(60,60,67,0.75)',
-                letterSpacing: '-0.1px',
-                lineHeight: 1.2
+                fontSize: '9px', fontWeight: 600,
+                letterSpacing: '0.3px',
+                color: isActive ? MD3.primary : MD3.onSurfaceVariant,
+                lineHeight: 1,
               }}>{label}</span>
             </button>
           );
         })}
       </div>
-    </>
+    </div>
+  );
+}
+
+/** Desktop FAB column — rendered separately, top-right */
+export function DesktopFABs({ activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle }: Props) {
+  return (
+    <div style={{
+      position: 'fixed',
+      top: '16px', right: '16px',
+      display: 'flex', flexDirection: 'column', gap: '12px',
+      zIndex: 20,
+    }}>
+      {tools.map(({ id, icon, label }) => {
+        const isSlope  = id === 'slope';
+        const isActive = isSlope ? slopeAngleVisible : activeTool === id;
+        return (
+          <button
+            key={id}
+            onClick={() => isSlope ? onToggleSlopeAngle() : onToolSelect(id)}
+            title={label}
+            style={{
+              width: '56px', height: '56px',
+              borderRadius: '50%',
+              border: 'none',
+              background: isActive ? MD3.primary : MD3.surface,
+              color:      isActive ? MD3.onPrimary : MD3.onSurfaceVariant,
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '22px',
+              transition: 'background 0.18s',
+              boxShadow: 'none',
+              outline: `1px solid ${isActive ? MD3.primary : MD3.outlineVariant}`,
+              outlineOffset: '-1px',
+            }}
+          >
+            {icon}
+          </button>
+        );
+      })}
+    </div>
   );
 }

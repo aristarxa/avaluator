@@ -3,6 +3,8 @@ import type { SlopePolygon, Resort, Steepness, RiskColor } from '../types';
 import { defaultSlopeScore } from '../types';
 import { calculateRiskColor } from '../services/riskCalculator';
 import { storageService } from '../services/storage';
+import { MD3 } from '../theme';
+import SidePanel from './SidePanel';
 
 interface Props {
   slope: SlopePolygon | null;
@@ -14,10 +16,10 @@ interface Props {
 const RESORTS: Resort[] = ['Роза', 'Лаура', 'Альпика', 'Красная Поляна'];
 
 const RISK_META: Record<RiskColor, { label: string; color: string; bg: string }> = {
-  gray:   { label: 'Нет данных',        color: '#8E8E93', bg: 'rgba(142,142,147,0.15)' },
-  green:  { label: 'Низкий риск',       color: '#34C759', bg: 'rgba(52,199,89,0.15)'  },
-  yellow: { label: 'Умеренный риск',    color: '#FF9F0A', bg: 'rgba(255,159,10,0.15)' },
-  red:    { label: 'Высокий риск',      color: '#FF3B30', bg: 'rgba(255,59,48,0.15)'  },
+  gray:   { label: 'Нет данных',     color: MD3.riskGray,   bg: MD3.riskGrayBg   },
+  green:  { label: 'Низкий риск',    color: MD3.riskGreen,  bg: MD3.riskGreenBg  },
+  yellow: { label: 'Умеренный риск', color: MD3.riskYellow, bg: MD3.riskYellowBg },
+  red:    { label: 'Высокий риск',   color: MD3.riskRed,    bg: MD3.riskRedBg    },
 };
 
 export default function SlopeSheet({ slope, onSave, onClose, onDelete }: Props) {
@@ -30,10 +32,18 @@ export default function SlopeSheet({ slope, onSave, onClose, onDelete }: Props) 
   const [convexShape,   setConvexShape]   = useState(false);
   const [forestDensity, setForestDensity] = useState(false);
   const [liveColor,     setLiveColor]     = useState<RiskColor>('gray');
+  const [isDesktop,     setIsDesktop]     = useState(false);
 
   const startYRef = useRef<number | null>(null);
 
-  // Populate form when slope changes
+  useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    setIsDesktop(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+
   useEffect(() => {
     if (!slope) return;
     setName(slope.name || '');
@@ -48,7 +58,6 @@ export default function SlopeSheet({ slope, onSave, onClose, onDelete }: Props) 
     setLiveColor(slope.color);
   }, [slope]);
 
-  /** Recompute color whenever any scoring field changes */
   const recompute = useCallback((overrides: Partial<{
     steepness: Steepness; terrainTraps: boolean;
     convexShape: boolean; forestDensity: boolean;
@@ -64,30 +73,27 @@ export default function SlopeSheet({ slope, onSave, onClose, onDelete }: Props) 
     const eMin = parseInt(overrides.elevMin ?? elevMin, 10);
     const eMax = parseInt(overrides.elevMax ?? elevMax, 10);
     const draft: SlopePolygon = {
-      ...slope,
-      slopeScore:   s,
+      ...slope, slopeScore: s,
       elevationMin: isNaN(eMin) ? null : eMin,
       elevationMax: isNaN(eMax) ? null : eMax,
     };
     setLiveColor(calculateRiskColor(draft, storageService.getWeather()));
   }, [slope, steepness, terrainTraps, convexShape, forestDensity, elevMin, elevMax]);
 
-  const handleSteepness = (v: Steepness)   => { setSteepness(v);     recompute({ steepness: v }); };
-  const handleTraps     = (v: boolean)     => { setTerrainTraps(v);  recompute({ terrainTraps: v }); };
-  const handleConvex    = (v: boolean)     => { setConvexShape(v);   recompute({ convexShape: v }); };
-  const handleForest    = (v: boolean)     => { setForestDensity(v); recompute({ forestDensity: v }); };
-  const handleElevMin   = (v: string)      => { setElevMin(v);       recompute({ elevMin: v }); };
-  const handleElevMax   = (v: string)      => { setElevMax(v);       recompute({ elevMax: v }); };
+  const handleSteepness = (v: Steepness) => { setSteepness(v);     recompute({ steepness: v }); };
+  const handleTraps     = (v: boolean)   => { setTerrainTraps(v);  recompute({ terrainTraps: v }); };
+  const handleConvex    = (v: boolean)   => { setConvexShape(v);   recompute({ convexShape: v }); };
+  const handleForest    = (v: boolean)   => { setForestDensity(v); recompute({ forestDensity: v }); };
+  const handleElevMin   = (v: string)    => { setElevMin(v);       recompute({ elevMin: v }); };
+  const handleElevMax   = (v: string)    => { setElevMax(v);       recompute({ elevMax: v }); };
 
   const handleSave = () => {
     if (!slope) return;
     onSave({
-      ...slope,
-      name,
-      resort,
-      elevationMin:  elevMin  ? parseInt(elevMin,  10) : null,
-      elevationMax:  elevMax  ? parseInt(elevMax,  10) : null,
-      slopeScore:    { steepness, terrainTraps, convexShape, forestDensity }
+      ...slope, name, resort,
+      elevationMin: elevMin ? parseInt(elevMin, 10) : null,
+      elevationMax: elevMax ? parseInt(elevMax, 10) : null,
+      slopeScore: { steepness, terrainTraps, convexShape, forestDensity }
     });
   };
 
@@ -101,203 +107,237 @@ export default function SlopeSheet({ slope, onSave, onClose, onDelete }: Props) 
   const visible = slope !== null;
   const risk = RISK_META[liveColor];
 
+  const body = (
+    <>
+      {/* Risk badge */}
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '8px',
+        padding: '6px 14px', borderRadius: MD3.radiusFull,
+        background: risk.bg,
+        border: `1px solid ${risk.color}40`,
+        marginBottom: '20px', transition: 'all 0.25s'
+      }}>
+        <div style={{
+          width: '8px', height: '8px', borderRadius: '50%',
+          background: risk.color
+        }} />
+        <span style={{ fontSize: '13px', fontWeight: 600, color: risk.color }}>{risk.label}</span>
+      </div>
+
+      {/* Resort */}
+      <Field label="Курорт">
+        <select value={resort ?? ''} onChange={e => setResort((e.target.value as Resort) || null)} style={inputStyle}>
+          <option value="">Выберите курорт…</option>
+          {RESORTS.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+      </Field>
+
+      {/* Name */}
+      <Field label="Название">
+        <input type="text" value={name} onChange={e => setName(e.target.value)}
+          placeholder="Например: Северный цирк" style={inputStyle} />
+      </Field>
+
+      {/* Elevation */}
+      <Field label="Высота (м)">
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <input type="number" value={elevMin} onChange={e => handleElevMin(e.target.value)}
+            placeholder="Нижняя" style={{ ...inputStyle, flex: 1 }} />
+          <input type="number" value={elevMax} onChange={e => handleElevMax(e.target.value)}
+            placeholder="Верхняя" style={{ ...inputStyle, flex: 1 }} />
+        </div>
+      </Field>
+
+      <Divider label="Оценка склона" />
+
+      {/* Steepness */}
+      <Field label="Крутизна">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {([
+            [0, 'Менее 30° — без риска'],
+            [1, '30 – 35° (+1 балл)'],
+            [2, 'Более 35° (+2 балла)']
+          ] as [Steepness, string][]).map(([val, lbl]) => (
+            <Chip key={val} active={steepness === val} onClick={() => handleSteepness(val)}>{lbl}</Chip>
+          ))}
+        </div>
+      </Field>
+
+      {/* Boolean checks */}
+      {([
+        [terrainTraps,  handleTraps,  'Ловушки рельефа (+1)',    'Овраги, деревья, скальные сбросы'],
+        [convexShape,   handleConvex, 'Выпуклый склон (+1)',     'Нет опоры снизу или выпуклый рельеф'],
+        [forestDensity, handleForest, 'Редколесье / альпика (+1)', 'Кроны не смыкаются, открытые зоны']
+      ] as [boolean, (v: boolean) => void, string, string][]).map(([val, setter, title, desc]) => (
+        <CheckRow key={title} checked={val} onToggle={() => setter(!val)} title={title} desc={desc} />
+      ))}
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
+        {onDelete && slope && (
+          <button onClick={() => { onDelete(slope.id); onClose(); }} style={deleteBtnStyle}>Удалить</button>
+        )}
+        <button onClick={handleSave} style={primaryBtnStyle}>Сохранить</button>
+      </div>
+    </>
+  );
+
+  if (isDesktop) {
+    return (
+      <SidePanel title={slope?.name || 'Новый склон'} onClose={onClose} visible={visible}>
+        {body}
+      </SidePanel>
+    );
+  }
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 30, pointerEvents: visible ? 'auto' : 'none' }}>
-      {visible && (
-        <div onClick={onClose} style={{
-          position: 'absolute', inset: 0,
-          background: 'rgba(0,0,0,0.25)',
-          backdropFilter: 'blur(2px)'
-        }} />
-      )}
-
+      {visible && <Scrim onClick={onClose} />}
       <div
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
-        style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          background: 'rgba(255,255,255,0.72)',
-          backdropFilter: 'blur(40px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-          borderRadius: '28px 28px 0 0',
-          padding: '0 20px 40px',
-          maxHeight: '88vh', overflowY: 'auto',
-          boxShadow: '0 -1px 0 rgba(255,255,255,0.5) inset, 0 -8px 40px rgba(0,0,0,0.18)',
-          border: '1px solid rgba(255,255,255,0.6)',
-          borderBottom: 'none',
-          transform: visible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 0.4s cubic-bezier(0.32,0,0.67,0)'
-        }}
+        onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}
+        style={sheetStyle(visible)}
       >
-        {/* Drag handle */}
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0 6px' }}>
-          <div style={{ width: '36px', height: '5px', borderRadius: '3px', background: 'rgba(60,60,67,0.3)' }} />
-        </div>
-
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#1c1c1e', letterSpacing: '-0.3px' }}>
-            {slope?.name ? slope.name : 'Новый склон'}
-          </h2>
-          <button onClick={onClose} style={glassCloseBtnStyle}>✕</button>
-        </div>
-
-        {/* Live risk badge */}
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: '7px',
-          padding: '7px 14px', borderRadius: '20px',
-          background: risk.bg, marginBottom: '20px',
-          border: `1px solid ${risk.color}40`,
-          transition: 'all 0.3s'
-        }}>
-          <div style={{
-            width: '9px', height: '9px', borderRadius: '50%',
-            background: risk.color,
-            boxShadow: `0 0 6px ${risk.color}`
-          }} />
-          <span style={{ fontSize: '13px', fontWeight: 600, color: risk.color }}>{risk.label}</span>
-        </div>
-
-        {/* Resort */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle}>Курорт</label>
-          <select value={resort ?? ''} onChange={e => setResort((e.target.value as Resort) || null)} style={inputStyle}>
-            <option value="">Выберите курорт…</option>
-            {RESORTS.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-        </div>
-
-        {/* Name */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle}>Название</label>
-          <input
-            type="text" value={name}
-            onChange={e => setName(e.target.value)}
-            placeholder="Например: Северный цирк"
-            style={inputStyle}
-          />
-        </div>
-
-        {/* Elevation */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle}>Высота (м)</label>
-          <div style={{ display: 'flex', gap: '10px' }}>
-            <input type="number" value={elevMin} onChange={e => handleElevMin(e.target.value)}
-              placeholder="Нижняя" style={{ ...inputStyle, flex: 1 }} />
-            <input type="number" value={elevMax} onChange={e => handleElevMax(e.target.value)}
-              placeholder="Верхняя" style={{ ...inputStyle, flex: 1 }} />
-          </div>
-        </div>
-
-        {/* Divider */}
-        <div style={{ height: '1px', background: 'rgba(60,60,67,0.1)', margin: '4px 0 18px' }} />
-        <div style={{ fontSize: '13px', fontWeight: 700, color: 'rgba(60,60,67,0.5)', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '12px' }}>
-          Оценка склона
-        </div>
-
-        {/* Steepness */}
-        <div style={fieldGroupStyle}>
-          <label style={labelStyle}>Крутизна</label>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {([
-              [0, 'Менее 30° — без риска'],
-              [1, '30 – 35° (+1 балл)'],
-              [2, 'Более 35° (+2 балла)']
-            ] as [Steepness, string][]).map(([val, lbl]) => (
-              <button
-                key={val}
-                onClick={() => handleSteepness(val)}
-                style={{
-                  padding: '12px 14px', borderRadius: '14px', cursor: 'pointer',
-                  border: steepness === val ? '1.5px solid #007AFF' : '1.5px solid transparent',
-                  background: steepness === val ? 'rgba(0,122,255,0.12)' : 'rgba(118,118,128,0.1)',
-                  textAlign: 'left', fontSize: '14px', fontWeight: steepness === val ? 600 : 400,
-                  color: steepness === val ? '#007AFF' : '#1c1c1e',
-                  transition: 'all 0.15s'
-                }}
-              >{lbl}</button>
-            ))}
-          </div>
-        </div>
-
-        {/* Checkboxes */}
-        {([
-          [terrainTraps,  handleTraps,  'Ловушки рельефа (+1)',  'Овраги, деревья, скальные сбросы'],
-          [convexShape,   handleConvex, 'Выпуклый склон (+1)',   'Нет опоры снизу или выпуклый рельеф'],
-          [forestDensity, handleForest, 'Редколесье / альпика (+1)', 'Кроны не смыкаются, открытые зоны']
-        ] as [boolean, (v: boolean) => void, string, string][]).map(([val, setter, title, desc]) => (
-          <div
-            key={title}
-            onClick={() => setter(!val)}
-            style={{
-              display: 'flex', alignItems: 'flex-start', gap: '12px',
-              padding: '12px 14px', borderRadius: '14px', marginBottom: '8px',
-              background: val ? 'rgba(0,122,255,0.1)' : 'rgba(118,118,128,0.08)',
-              border: val ? '1px solid rgba(0,122,255,0.3)' : '1px solid transparent',
-              cursor: 'pointer', transition: 'all 0.15s'
-            }}
-          >
-            <div style={{
-              width: '22px', height: '22px', borderRadius: '7px', flexShrink: 0, marginTop: '1px',
-              background: val ? '#007AFF' : 'rgba(118,118,128,0.2)',
-              border: val ? 'none' : '1px solid rgba(60,60,67,0.25)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              transition: 'all 0.15s'
-            }}>
-              {val && <span style={{ color: '#fff', fontSize: '13px', fontWeight: 700 }}>✓</span>}
-            </div>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '14px', color: '#1c1c1e' }}>{title}</div>
-              <div style={{ fontSize: '12px', color: 'rgba(60,60,67,0.55)', marginTop: '2px' }}>{desc}</div>
-            </div>
-          </div>
-        ))}
-
-        {/* Actions */}
-        <div style={{ display: 'flex', gap: '10px', marginTop: '24px' }}>
-          {onDelete && slope && (
-            <button
-              onClick={() => { onDelete(slope.id); onClose(); }}
-              style={{
-                padding: '14px 16px', borderRadius: '16px', border: 'none',
-                background: 'rgba(255,59,48,0.12)', color: '#FF3B30',
-                fontSize: '15px', fontWeight: 600, cursor: 'pointer',
-                flexShrink: 0
-              }}
-            >Удалить</button>
-          )}
-          <button
-            onClick={handleSave}
-            style={{
-              flex: 1, padding: '15px', borderRadius: '16px', border: 'none',
-              background: '#007AFF', color: '#fff',
-              fontSize: '16px', fontWeight: 700, cursor: 'pointer',
-              boxShadow: '0 4px 16px rgba(0,122,255,0.35)'
-            }}
-          >Сохранить</button>
-        </div>
+        <Handle />
+        <SheetHeader title={slope?.name || 'Новый склон'} onClose={onClose} />
+        <div style={{ padding: '0 0 8px' }}>{body}</div>
       </div>
     </div>
   );
 }
 
+// ─── Small shared sub-components ───────────────────────────────────────────
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: '16px' }}>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Divider({ label }: { label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '8px 0 18px' }}>
+      <div style={{ flex: 1, height: '1px', background: MD3.outlineVariant }} />
+      <span style={{ fontSize: '11px', fontWeight: 700, color: MD3.outline, textTransform: 'uppercase', letterSpacing: '0.8px' }}>{label}</span>
+      <div style={{ flex: 1, height: '1px', background: MD3.outlineVariant }} />
+    </div>
+  );
+}
+
+function Chip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} style={{
+      padding: '11px 14px', borderRadius: MD3.radiusSmall, cursor: 'pointer',
+      border: active ? `2px solid ${MD3.primary}` : `1px solid ${MD3.outlineVariant}`,
+      background: active ? MD3.primaryContainer : MD3.surface,
+      textAlign: 'left', fontSize: '14px',
+      fontWeight: active ? 600 : 400,
+      color: active ? MD3.primary : MD3.onSurfaceVariant,
+      transition: 'all 0.15s'
+    }}>{children}</button>
+  );
+}
+
+function CheckRow({ checked, onToggle, title, desc }: {
+  checked: boolean; onToggle: () => void; title: string; desc: string;
+}) {
+  return (
+    <div onClick={onToggle} style={{
+      display: 'flex', alignItems: 'flex-start', gap: '12px',
+      padding: '12px 14px', borderRadius: MD3.radiusSmall,
+      marginBottom: '8px',
+      background: checked ? MD3.primaryContainer : MD3.surfaceContainer,
+      border: checked ? `1px solid ${MD3.primary}40` : `1px solid transparent`,
+      cursor: 'pointer', transition: 'all 0.15s'
+    }}>
+      <div style={{
+        width: '22px', height: '22px', borderRadius: '6px', flexShrink: 0, marginTop: '1px',
+        background: checked ? MD3.primary : MD3.surface,
+        border: checked ? 'none' : `2px solid ${MD3.outline}`,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        transition: 'all 0.15s'
+      }}>
+        {checked && <span style={{ color: MD3.onPrimary, fontSize: '13px', fontWeight: 700 }}>✓</span>}
+      </div>
+      <div>
+        <div style={{ fontWeight: 600, fontSize: '14px', color: MD3.onSurface }}>{title}</div>
+        <div style={{ fontSize: '12px', color: MD3.onSurfaceVariant, marginTop: '2px' }}>{desc}</div>
+      </div>
+    </div>
+  );
+}
+
+function Scrim({ onClick }: { onClick: () => void }) {
+  return <div onClick={onClick} style={{
+    position: 'absolute', inset: 0,
+    background: 'rgba(0,0,0,0.32)'
+  }} />;
+}
+
+function Handle() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 6px' }}>
+      <div style={{ width: '32px', height: '4px', borderRadius: '2px', background: MD3.outlineVariant }} />
+    </div>
+  );
+}
+
+function SheetHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: 700, color: MD3.onSurface, margin: 0 }}>{title}</h2>
+      <button onClick={onClose} style={iconBtnStyle}>✕</button>
+    </div>
+  );
+}
+
+// ─── Styles ─────────────────────────────────────────────────────────────────
+
+const sheetStyle = (visible: boolean): React.CSSProperties => ({
+  position: 'absolute', bottom: 0, left: 0, right: 0,
+  background: MD3.surface,
+  borderRadius: '28px 28px 0 0',
+  padding: '0 20px 40px',
+  maxHeight: '88vh', overflowY: 'auto',
+  boxShadow: '0 -1px 0 ' + MD3.outlineVariant,
+  transform: visible ? 'translateY(0)' : 'translateY(100%)',
+  transition: 'transform 0.35s cubic-bezier(0.2,0,0,1)',
+});
+
 const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: '12px', fontWeight: 600,
-  color: 'rgba(60,60,67,0.55)', textTransform: 'uppercase',
-  letterSpacing: '0.5px', marginBottom: '8px'
+  color: MD3.onSurfaceVariant, textTransform: 'uppercase',
+  letterSpacing: '0.6px', marginBottom: '8px'
 };
-const fieldGroupStyle: React.CSSProperties = { marginBottom: '16px' };
+
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '12px 14px', fontSize: '15px',
-  border: '1px solid rgba(60,60,67,0.18)',
-  borderRadius: '14px', outline: 'none',
-  background: 'rgba(118,118,128,0.08)',
-  color: '#1c1c1e', boxSizing: 'border-box',
-  WebkitAppearance: 'none'
+  border: `1px solid ${MD3.outlineVariant}`,
+  borderRadius: MD3.radiusSmall, outline: 'none',
+  background: MD3.surfaceContainer,
+  color: MD3.onSurface, boxSizing: 'border-box'
 };
-const glassCloseBtnStyle: React.CSSProperties = {
-  width: '30px', height: '30px', borderRadius: '50%',
-  border: 'none', background: 'rgba(118,118,128,0.18)',
-  cursor: 'pointer', fontSize: '13px', color: 'rgba(60,60,67,0.6)',
+
+const primaryBtnStyle: React.CSSProperties = {
+  flex: 1, padding: '14px', borderRadius: MD3.radiusMedium, border: 'none',
+  background: MD3.primary, color: MD3.onPrimary,
+  fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+  boxShadow: 'none'
+};
+
+const deleteBtnStyle: React.CSSProperties = {
+  padding: '14px 18px', borderRadius: MD3.radiusMedium, border: 'none',
+  background: MD3.errorContainer, color: MD3.error,
+  fontSize: '15px', fontWeight: 600, cursor: 'pointer',
+  boxShadow: 'none', flexShrink: 0
+};
+
+const iconBtnStyle: React.CSSProperties = {
+  width: '40px', height: '40px', borderRadius: '50%',
+  border: 'none', background: MD3.surfaceVariant,
+  cursor: 'pointer', fontSize: '14px',
+  color: MD3.onSurfaceVariant,
   display: 'flex', alignItems: 'center', justifyContent: 'center'
 };
