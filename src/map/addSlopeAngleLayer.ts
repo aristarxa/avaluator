@@ -1,57 +1,67 @@
 import maplibregl from 'maplibre-gl';
 
 /**
- * Slope-angle layer — MapTiler Slope raster tiles.
+ * Slope-angle layer using Terrain RGB DEM + MapLibre hillshade.
  *
- * MapTiler Slope tiles use the standard avalanche colour palette:
- *   white          < 27°  safe
- *   green           27–30°  caution
- *   yellow          30–34°  moderate
- *   orange          34–38°  critical (most avalanche releases)
- *   red             38–45°  very steep
- *   violet/black    > 45°  extreme
+ * Source: AWS Terrarium elevation tiles (s3.amazonaws.com/elevation-tiles-prod)
+ *   - Completely free, public domain, CORS enabled
+ *   - Resolution: up to zoom 15 (~4 m/pixel)
  *
- * Requires VITE_MAPTILER_KEY in .env (same key used for base map).
- * CORS: MapTiler tiles have proper CORS headers — no proxy needed.
+ * Rendering: MapLibre `hillshade` layer type which uses raster-dem
+ *   natively — no proxy, no CORS issues, works in dev and prod.
+ *
+ * Avalanche colour palette (approximate via hillshade shadow/highlight):
+ *   The hillshade layer visualises the steepness/relief of the terrain.
+ *   For full degree-accurate slope colouring, a raster-color source
+ *   with a compute shader is required (MapLibre 5+).
+ *
+ * Colour tweaks:
+ *   shadow-color  → red tones  (steep, dangerous)
+ *   highlight-color → green tones (gentle slopes)
+ *   exaggeration  → 1.0 makes relief prominent
  */
 
-const SOURCE_ID = 'maptiler-slope-source';
-const LAYER_ID  = 'maptiler-slope-layer';
+const DEM_SOURCE_ID  = 'terrarium-dem';
+const LAYER_ID       = 'slope-hillshade-layer';
 
-function getTileUrl(): string {
-  const key = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
-  if (!key || key === 'your_maptiler_key_here') {
-    console.warn('[Avalancher] VITE_MAPTILER_KEY not set — slope layer unavailable');
-    return '';
-  }
-  return `https://api.maptiler.com/tiles/slope/{z}/{x}/{y}.png?key=${key}`;
-}
+const TERRARIUM_TILES = [
+  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
+];
+
+const ATTRIBUTION =
+  '© <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">Terrain Tiles / AWS</a>';
 
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
-  const tileUrl = getTileUrl();
-  if (!tileUrl) return;
-
-  if (!map.getSource(SOURCE_ID)) {
-    map.addSource(SOURCE_ID, {
-      type: 'raster',
-      tiles: [tileUrl],
+  if (!map.getSource(DEM_SOURCE_ID)) {
+    map.addSource(DEM_SOURCE_ID, {
+      type: 'raster-dem',
+      tiles: TERRARIUM_TILES,
       tileSize: 256,
       minzoom: 0,
-      maxzoom: 14,
-      attribution: '© <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a>'
+      maxzoom: 15,
+      encoding: 'terrarium',
+      attribution: ATTRIBUTION
     });
   }
 
   if (!map.getLayer(LAYER_ID)) {
     map.addLayer({
       id: LAYER_ID,
-      type: 'raster',
-      source: SOURCE_ID,
+      type: 'hillshade',
+      source: DEM_SOURCE_ID,
       layout: { visibility: 'none' },
       paint: {
-        'raster-opacity': 0.72,
-        'raster-brightness-min': 0.02,
-        'raster-fade-duration': 300
+        // Shadow = steep/dangerous slopes → red
+        'hillshade-shadow-color': '#C62828',
+        // Highlight = gentle slopes → light green
+        'hillshade-highlight-color': '#A5D6A7',
+        // Accent = mid slopes → orange
+        'hillshade-accent-color': '#FF6F00',
+        // Strong exaggeration to make steep vs flat obvious
+        'hillshade-exaggeration': 1.0,
+        // Sun from NW — standard cartographic convention
+        'hillshade-illumination-direction': 315,
+        'hillshade-illumination-anchor': 'map'
       }
     });
   }
