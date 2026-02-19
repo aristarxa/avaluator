@@ -18,7 +18,6 @@ import { calculateRiskColor } from './services/riskCalculator';
 
 import type { SlopePolygon, WeatherData } from './types';
 import { defaultSlopeScore } from './types';
-import { MD3 } from './theme';
 
 function uuid(): string {
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -61,8 +60,7 @@ export default function App() {
     const map = mapRef.current;
     if (!map) return;
     const slopes = storageService.getSlopes().map(s => ({
-      ...s,
-      color: calculateRiskColor(s, currentWeather)
+      ...s, color: calculateRiskColor(s, currentWeather)
     }));
     slopes.forEach(s => storageService.saveSlope(s));
     slopesRef.current = slopes;
@@ -128,22 +126,20 @@ export default function App() {
   }, []);
 
   const handleSaveSlope = useCallback((slope: SlopePolygon) => {
-    const map    = mapRef.current;
-    const stored = storageService.getSlopes().find(s => s.id === slope.id);
-    const coords = stored?.coordinates ?? slope.coordinates;
-    const updated: SlopePolygon = {
+    const stored  = storageService.getSlopes().find(s => s.id === slope.id);
+    const coords  = stored?.coordinates ?? slope.coordinates;
+    const updated = {
       ...slope, coordinates: coords,
       color: calculateRiskColor({ ...slope, coordinates: coords }, storageService.getWeather())
     };
     storageService.saveSlope(updated);
-    if (map) syncMap(map);
+    if (mapRef.current) syncMap(mapRef.current);
     setSelectedSlope(null);
   }, [syncMap]);
 
   const handleDeleteSlope = useCallback((id: string) => {
-    const map = mapRef.current;
     storageService.deleteSlope(id);
-    if (map) syncMap(map);
+    if (mapRef.current) syncMap(mapRef.current);
     setSelectedSlope(null);
   }, [syncMap]);
 
@@ -162,7 +158,6 @@ export default function App() {
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
       <MapView ref={mapViewRef} onMapLoad={handleMapLoad} />
 
-      {/* Desktop FAB column */}
       {isDesktop && (
         <DesktopFABs
           activeTool={activeTool}
@@ -172,7 +167,6 @@ export default function App() {
         />
       )}
 
-      {/* Mobile Navigation Bar */}
       {!isDesktop && (
         <Toolbar
           activeTool={activeTool}
@@ -184,11 +178,12 @@ export default function App() {
 
       <InstallPrompt />
 
-      {/* Drawing mode toast */}
       {activeTool === 'draw' && (
-        <div className="m3-snackbar" style={{ pointerEvents: 'none' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: '18px', verticalAlign: 'middle', marginRight: '8px' }}>gesture</span>
-          Рисуйте склон — замкните на первую точку
+        <div
+          className="toast glass-dark"
+          style={{ color: '#fff', letterSpacing: '-.15px' }}
+        >
+          ⌨️  Рисуйте склон — замкните на первую точку
         </div>
       )}
 

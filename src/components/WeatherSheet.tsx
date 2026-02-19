@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import type { WeatherData, ElevationBand, WeatherScore } from '../types';
 import { ALL_BANDS, defaultWeatherScore } from '../types';
 import { calcWeatherBandScore } from '../services/riskCalculator';
-import { MD3 } from '../theme';
 import SidePanel from './SidePanel';
 
 interface Props {
@@ -25,15 +24,15 @@ const CHECKLIST: { key: keyof WeatherScore; label: string; desc: string }[] = [
   { key: 'slabAvalanche',   label: 'Лавины из доски',                desc: 'Признаки схода сегодня / вчера' },
   { key: 'instability',     label: 'Нестабильность снега',           desc: 'Вумфинг, трещины, гулкий звук' },
   { key: 'recentLoading',   label: 'Недавнее возрастание нагрузки',  desc: '≥ 30 см за 48 ч, ветер, дождь' },
-  { key: 'criticalWarming', label: 'Критическое потепление',         desc: 'Потепление от 0 °С, мокрый снег' },
+  { key: 'criticalWarming', label: 'Критическое потепление',         desc: 'От 0 °С, мокрый снег' },
 ];
 
-const scoreColor = (s: number): string =>
-  s <= 1 ? MD3.riskGreen : s <= 3 ? MD3.riskYellow : MD3.riskRed;
+const scoreColor = (s: number) =>
+  s <= 1 ? 'var(--c-risk-green)' : s <= 3 ? 'var(--c-risk-yellow)' : 'var(--c-risk-red)';
 
 export default function WeatherSheet({ weather, onSave, onClose, visible }: Props) {
-  const [local,    setLocal]    = useState<WeatherData>(() => ({ ...weather }));
-  const [expanded, setExpanded] = useState<ElevationBand | null>(null);
+  const [local,     setLocal]     = useState<WeatherData>(() => ({ ...weather }));
+  const [expanded,  setExpanded]  = useState<ElevationBand | null>(null);
   const [isDesktop, setIsDesktop] = React.useState(false);
   const startYRef = useRef<number | null>(null);
 
@@ -61,8 +60,9 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
     const stamped = { ...local };
     for (const band of ALL_BANDS) {
       const ws = stamped[band];
-      const hasFlags = ['dangerLevel3','weakLayers','slabAvalanche','instability','recentLoading','criticalWarming']
-        .some(k => ws[k as keyof WeatherScore]);
+      const hasFlags = (Object.keys(ws) as (keyof WeatherScore)[])
+        .filter(k => k !== 'lastUpdated')
+        .some(k => ws[k]);
       if (!ws.lastUpdated && hasFlags)
         stamped[band] = { ...ws, lastUpdated: new Date().toISOString() };
     }
@@ -84,7 +84,7 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
 
   const body = (
     <>
-      <p style={{ fontSize: '13px', color: MD3.onSurfaceVariant, marginBottom: '20px', lineHeight: 1.5 }}>
+      <p style={{ fontSize: '13px', color: 'var(--c-label-2)', lineHeight: 1.5, letterSpacing: '-.1px' }}>
         Сохраните диапазон — склоны перекрасятся автоматически
       </p>
 
@@ -93,99 +93,71 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
         const score   = calcWeatherBandScore(ws);
         const hasData = !!ws.lastUpdated;
         const isOpen  = expanded === band;
-        const dot     = hasData ? scoreColor(score) : MD3.outlineVariant;
+        const dotClr  = hasData ? scoreColor(score) : 'var(--c-label-3)';
 
         return (
-          <div key={band} style={{ marginBottom: '10px' }}>
+          <div key={band}>
             <button
+              className={`accordion-btn${isOpen ? ' open' : ''}`}
               onClick={() => setExpanded(isOpen ? null : band)}
-              style={{
-                width: '100%', padding: '13px 16px',
-                background: isOpen ? MD3.primaryContainer : MD3.surfaceContainer,
-                border: isOpen ? `1.5px solid ${MD3.primary}` : `1px solid ${MD3.outlineVariant}`,
-                borderRadius: isOpen ? `${MD3.radiusSmall} ${MD3.radiusSmall} 0 0` : MD3.radiusSmall,
-                cursor: 'pointer',
-                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                transition: 'all 0.18s'
-              }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{
-                  width: '10px', height: '10px', borderRadius: '50%', background: dot,
-                  flexShrink: 0
-                }} />
-                <span style={{ fontSize: '15px', fontWeight: 600, color: MD3.onSurface }}>{BAND_LABELS[band]}</span>
+                <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: dotClr, flexShrink: 0 }} />
+                <span style={{ fontSize: '15px', fontWeight: 600, letterSpacing: '-.2px', color: 'var(--c-label)' }}>
+                  {BAND_LABELS[band]}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 {hasData
-                  ? <span style={{ fontSize: '12px', color: MD3.onSurfaceVariant }}>{score} б · {fmt(ws.lastUpdated)}</span>
-                  : <span style={{ fontSize: '12px', color: MD3.outline }}>Не заполнено</span>
+                  ? <span style={{ fontSize: '12px', color: 'var(--c-label-2)' }}>{score} б · {fmt(ws.lastUpdated)}</span>
+                  : <span style={{ fontSize: '12px', color: 'var(--c-label-3)' }}>Не заполнено</span>
                 }
                 <span style={{
-                  fontSize: '11px', color: MD3.outline,
+                  fontSize: '10px', color: 'var(--c-label-3)',
                   display: 'inline-block',
                   transform: isOpen ? 'rotate(180deg)' : 'none',
-                  transition: 'transform 0.18s'
+                  transition: 'transform var(--t-fast)'
                 }}>▼</span>
               </div>
             </button>
 
             {isOpen && (
-              <div style={{
-                background: MD3.surfaceContainer,
-                border: `1.5px solid ${MD3.primary}`,
-                borderTop: 'none',
-                borderRadius: `0 0 ${MD3.radiusSmall} ${MD3.radiusSmall}`,
-                padding: '14px 16px 12px'
-              }}>
-                {CHECKLIST.map(({ key, label, desc }) => (
-                  <div
-                    key={key}
-                    onClick={() => updateField(band, key, !ws[key as keyof WeatherScore])}
-                    style={{
-                      display: 'flex', alignItems: 'flex-start', gap: '12px',
-                      padding: '10px 0',
-                      borderBottom: `1px solid ${MD3.outlineVariant}`,
-                      cursor: 'pointer'
-                    }}
-                  >
-                    <div style={{
-                      width: '22px', height: '22px', borderRadius: '6px',
-                      flexShrink: 0, marginTop: '1px',
-                      background: ws[key as keyof WeatherScore] ? MD3.primary : MD3.surface,
-                      border: ws[key as keyof WeatherScore] ? 'none' : `2px solid ${MD3.outline}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all 0.15s'
-                    }}>
-                      {ws[key as keyof WeatherScore] && (
-                        <span style={{ color: MD3.onPrimary, fontSize: '13px', fontWeight: 700 }}>✓</span>
-                      )}
+              <div className="accordion-body">
+                {CHECKLIST.map(({ key, label, desc }) => {
+                  const checked = !!ws[key as keyof WeatherScore];
+                  return (
+                    <div
+                      key={key}
+                      className={`check-row${checked ? ' checked' : ''}`}
+                      style={{ borderRadius: 'var(--r-sm)', marginBottom: '4px' }}
+                      onClick={() => updateField(band, key, !ws[key as keyof WeatherScore])}
+                    >
+                      <div className={`check-box${checked ? ' checked' : ''}`}>
+                        {checked && <span className="check-tick">✓</span>}
+                      </div>
+                      <div>
+                        <div className="check-title">{label}</div>
+                        <div className="check-desc">{desc}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '14px', color: MD3.onSurface }}>{label}</div>
-                      <div style={{ fontSize: '12px', color: MD3.onSurfaceVariant, marginTop: '2px' }}>{desc}</div>
-                    </div>
-                  </div>
-                ))}
-                <button onClick={() => saveBand(band)} style={{
-                  marginTop: '12px', width: '100%', padding: '12px',
-                  fontSize: '14px', fontWeight: 600,
-                  background: MD3.primary, color: MD3.onPrimary,
-                  border: 'none', borderRadius: MD3.radiusSmall,
-                  cursor: 'pointer', boxShadow: 'none'
-                }}>Сохранить и пересчитать ↑</button>
+                  );
+                })}
+                <button
+                  className="btn-primary"
+                  style={{ width: '100%', marginTop: '8px' }}
+                  onClick={() => saveBand(band)}
+                >
+                  Сохранить и пересчитать
+                </button>
               </div>
             )}
           </div>
         );
       })}
 
-      <button onClick={handleSaveAll} style={{
-        width: '100%', padding: '14px', fontSize: '15px', fontWeight: 600,
-        background: MD3.onSurface, color: MD3.surface,
-        border: 'none', borderRadius: MD3.radiusMedium,
-        cursor: 'pointer', marginTop: '8px', boxShadow: 'none'
-      }}>Сохранить все диапазоны</button>
+      <button className="btn-secondary" style={{ width: '100%' }} onClick={handleSaveAll}>
+        Сохранить все диапазоны
+      </button>
     </>
   );
 
@@ -199,39 +171,20 @@ export default function WeatherSheet({ weather, onSave, onClose, visible }: Prop
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 30, pointerEvents: visible ? 'auto' : 'none' }}>
-      {visible && (
-        <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.32)' }} />
-      )}
+      {visible && <div className="sheet-backdrop" onClick={onClose} />}
       <div
-        onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}
-        style={{
-          position: 'absolute', bottom: 0, left: 0, right: 0,
-          background: MD3.surface,
-          borderRadius: '28px 28px 0 0',
-          padding: '0 20px 40px',
-          maxHeight: '88vh', overflowY: 'auto',
-          boxShadow: '0 -1px 0 ' + MD3.outlineVariant,
-          transform: visible ? 'translateY(0)' : 'translateY(100%)',
-          transition: 'transform 0.35s cubic-bezier(0.2,0,0,1)'
-        }}
+        className="sheet"
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        style={{ transform: visible ? 'translateY(0)' : 'translateY(100%)', transition: 'transform var(--t-spring)' }}
       >
-        <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0 6px' }}>
-          <div style={{ width: '32px', height: '4px', borderRadius: '2px', background: MD3.outlineVariant }} />
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: MD3.onSurface, margin: 0 }}>Погода</h2>
-          <button onClick={onClose} style={iconBtnStyle}>✕</button>
-        </div>
-        {body}
+        <div className="sheet-handle" />
+        <header className="sheet-header">
+          <span className="sheet-title">Погода</span>
+          <button className="btn-icon" onClick={onClose} aria-label="Закрыть">✕</button>
+        </header>
+        <div className="sheet-body">{body}</div>
       </div>
     </div>
   );
 }
-
-const iconBtnStyle: React.CSSProperties = {
-  width: '40px', height: '40px', borderRadius: '50%',
-  border: 'none', background: MD3.surfaceVariant,
-  cursor: 'pointer', fontSize: '14px',
-  color: MD3.onSurfaceVariant,
-  display: 'flex', alignItems: 'center', justifyContent: 'center'
-};

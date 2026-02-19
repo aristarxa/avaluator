@@ -9,38 +9,29 @@ interface Props {
   onToggleSlopeAngle: () => void;
 }
 
-const tools: {
-  id: 'draw' | 'weather' | 'slope';
-  icon: string;   // Material Symbol ligature
-  label: string;
-}[] = [
-  { id: 'draw',    icon: 'edit',             label: 'Склон'  },
-  { id: 'weather', icon: 'ac_unit',          label: 'Погода' },
-  { id: 'slope',   icon: 'landscape',        label: 'Уклон'  },
+const tools: { id: 'draw' | 'weather' | 'slope'; emoji: string; label: string }[] = [
+  { id: 'draw',    emoji: '\u270F\uFE0F', label: 'Склон'  },
+  { id: 'weather', emoji: '\u2744\uFE0F',  label: 'Погода' },
+  { id: 'slope',   emoji: '\uD83D\uDCD0',  label: 'Уклон'  },
 ];
 
-/** Mobile: MD3 Navigation Bar */
-export default function Toolbar({
-  activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle
-}: Props) {
+/** Mobile: iOS-style navigation tab bar */
+export default function Toolbar({ activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle }: Props) {
   return (
-    <nav className="m3-nav-bar" role="navigation" aria-label="Главная навигация">
-      {tools.map(({ id, icon, label }) => {
+    <nav className="nav-bar">
+      {tools.map(({ id, emoji, label }) => {
         const isSlope  = id === 'slope';
         const isActive = isSlope ? slopeAngleVisible : activeTool === id;
         return (
           <button
             key={id}
-            className={`m3-nav-item${isActive ? ' active' : ''}`}
+            className={`nav-item${isActive ? ' active' : ''}`}
             onClick={() => isSlope ? onToggleSlopeAngle() : onToolSelect(id)}
             aria-label={label}
             aria-pressed={isActive}
           >
-            <span className="nav-indicator" />
-            <span className={`material-symbols-rounded nav-icon${isActive ? ' filled' : ''}`}>
-              {icon}
-            </span>
-            <span className="m3-nav-label">{label}</span>
+            <span className="nav-icon">{emoji}</span>
+            <span className="nav-item-label">{label}</span>
           </button>
         );
       })}
@@ -48,34 +39,25 @@ export default function Toolbar({
   );
 }
 
-/** Desktop: MD3 FAB column (top-right) */
-export function DesktopFABs({
-  activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle
-}: Props) {
+/** Desktop: frosted-glass FAB column (top-right) */
+export function DesktopFABs({ activeTool, onToolSelect, slopeAngleVisible, onToggleSlopeAngle }: Props) {
   return (
-    <div style={{
-      position: 'fixed',
-      top: '16px', right: '16px',
-      display: 'flex', flexDirection: 'column', gap: '12px',
-      zIndex: 20,
-    }}>
-      {tools.map(({ id, icon, label }) => {
+    <div style={{ position: 'fixed', top: '16px', right: '16px', display: 'flex', flexDirection: 'column', gap: '10px', zIndex: 20 }}>
+      {tools.map(({ id, emoji, label }) => {
         const isSlope  = id === 'slope';
         const isActive = isSlope ? slopeAngleVisible : activeTool === id;
         return (
-          <button
-            key={id}
-            className={`m3-fab${isActive ? ' active' : ''}`}
-            onClick={() => isSlope ? onToggleSlopeAngle() : onToolSelect(id)}
-            title={label}
-            aria-label={label}
-            aria-pressed={isActive}
-          >
-            <span className={`material-symbols-rounded${isActive ? ' filled' : ''}`}
-              style={{ fontSize: '24px' }}>
-              {icon}
-            </span>
-          </button>
+          <div key={id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <button
+              className={`fab${isActive ? ' active' : ''}`}
+              onClick={() => isSlope ? onToggleSlopeAngle() : onToolSelect(id)}
+              title={label}
+              aria-label={label}
+              aria-pressed={isActive}
+            >
+              <span style={{ fontSize: '20px' }}>{emoji}</span>
+            </button>
+          </div>
         );
       })}
     </div>
