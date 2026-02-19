@@ -1,44 +1,65 @@
 import maplibregl from 'maplibre-gl';
-import { DEM_SOURCE_ID } from './addElevationLayers';
 
 /**
- * Slope-angle overlay — reuses the shared 'dem' raster-dem source
- * already added by addElevationLayers().
+ * Slope-angle overlay — OsmAnd Slope raster tiles.
  *
- * Rendered as a second hillshade layer with high exaggeration and
- * avalanche-palette colours. Inserted BEFORE contour lines so that
- * labels and numbers stay on top at all times.
+ * Source: tile.osmand.net/hd/slope/{z}/{x}/{y}.png
+ *   - Free, no API key required
+ *   - CORS enabled
+ *   - Real degree-accurate slope colouring (CalTopo-compatible palette)
  *
- * No extra network requests — no new source, no proxy needed.
+ * Avalanche colour palette:
+ *   transparent    < 27°  safe
+ *   white          27–29°  caution start
+ *   green          30–34°  moderate
+ *   yellow         34–38°  elevated
+ *   orange/red     38–45°  critical (peak avalanche release zone)
+ *   violet         45–50°  very steep
+ *   blue           50°+    extreme
+ *
+ * Layer is inserted BEFORE contour lines so labels/numbers stay on top.
  */
 
-const LAYER_ID = 'slope-hillshade-layer';
+const SOURCE_ID = 'osmand-slope-source';
+const LAYER_ID  = 'osmand-slope-layer';
+
+// OsmAnd tile servers (round-robin load balancing)
+const TILE_URLS = [
+  'https://tile.osmand.net/hd/slope/{z}/{x}/{y}.png'
+];
+
+const ATTRIBUTION =
+  '© <a href="https://osmand.net" target="_blank">OsmAnd</a>';
 
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
-  // DEM source must already exist (addElevationLayers called first)
-  if (!map.getSource(DEM_SOURCE_ID)) {
-    console.warn('[Avalancher] slope layer: DEM source not ready, skipping');
-    return;
+  if (!map.getSource(SOURCE_ID)) {
+    map.addSource(SOURCE_ID, {
+      type: 'raster',
+      tiles: TILE_URLS,
+      tileSize: 256,
+      minzoom: 4,
+      maxzoom: 19,
+      attribution: ATTRIBUTION
+    });
   }
 
   if (!map.getLayer(LAYER_ID)) {
-    // Always insert before contour lines so labels/numbers remain on top
-    const beforeId = map.getLayer('contours-minor') ? 'contours-minor' : undefined;
+    // Insert before contour lines so elevation labels stay on top
+    const beforeId = (
+      map.getLayer('contours-minor') ? 'contours-minor' :
+      map.getLayer('contours-major') ? 'contours-major' :
+      undefined
+    );
 
     map.addLayer(
       {
         id: LAYER_ID,
-        type: 'hillshade',
-        source: DEM_SOURCE_ID,
+        type: 'raster',
+        source: SOURCE_ID,
         layout: { visibility: 'none' },
         paint: {
-          // Red = steep/dangerous, green = gentle, orange = mid
-          'hillshade-shadow-color':         '#C62828',
-          'hillshade-highlight-color':      '#A5D6A7',
-          'hillshade-accent-color':         '#FF6F00',
-          'hillshade-exaggeration':         1.0,
-          'hillshade-illumination-direction': 315,
-          'hillshade-illumination-anchor':  'map'
+          'raster-opacity': 0.75,
+          'raster-fade-duration': 200
         }
       },
       beforeId
