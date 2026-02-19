@@ -1,36 +1,35 @@
 import maplibregl from 'maplibre-gl';
 
 /**
- * Slope-angle layer — OpenSlopeMap WMTS raster tiles.
+ * Slope-angle layer — OpenSlopeMap raster tiles proxied through Vite
+ * to avoid CORS (openslopemap.org has no CORS headers).
+ *
+ * Dev + preview: Vite proxy  /tile-proxy/slope/{z}/{x}/{y}.png
+ *                           → https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png
+ *
+ * Production (self-hosted): configure your reverse-proxy (nginx/caddy) to
+ *   proxy_pass /tile-proxy/slope/ → https://www.openslopemap.org/karten/gps/
  *
  * Colour scheme (standard avalanche palette):
  *   white          < 27°  safe
- *   yellow / green  27–30°  caution begin
+ *   green           27–30°  caution begin
  *   yellow          30–34°  moderate
- *   orange          34–38°  critical (most avalanches release here)
+ *   orange          34–38°  critical
  *   red             38–45°  very steep
- *   violet / black  > 45°  extreme
- *
- * Tile URL pattern (TMS, no auth required):
- *   https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png
- *   (gps = global pseudo-mercator tile set)
- *
- * Attribution: © openslopemap.org, data © NASA/SRTM + Copernicus DEM
+ *   violet/black    > 45°  extreme
  */
 
 const SOURCE_ID = 'openslopemap-source';
 const LAYER_ID  = 'openslopemap-layer';
 
-// Attribution shown in map corner
 const ATTRIBUTION = '© <a href="https://www.openslopemap.org" target="_blank">OpenSlopeMap</a>';
 
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
   if (!map.getSource(SOURCE_ID)) {
     map.addSource(SOURCE_ID, {
       type: 'raster',
-      tiles: [
-        'https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png'
-      ],
+      // Proxied URL — no CORS issues in dev or prod (with reverse proxy)
+      tiles: ['/tile-proxy/slope/{z}/{x}/{y}.png'],
       tileSize: 256,
       minzoom: 7,
       maxzoom: 15,
@@ -45,11 +44,8 @@ export function addSlopeAngleLayer(map: maplibregl.Map): void {
       source: SOURCE_ID,
       layout: { visibility: 'none' },
       paint: {
-        // Show at 70 % opacity so base map (roads, labels) stay visible
-        'raster-opacity': 0.70,
-        // Slight brightness boost — slope tiles are dark by default
+        'raster-opacity': 0.72,
         'raster-brightness-min': 0.05,
-        // Fade-in on tile load
         'raster-fade-duration': 300
       }
     });
@@ -64,5 +60,4 @@ export function toggleSlopeAngleLayer(map: maplibregl.Map): boolean {
   return next === 'visible';
 }
 
-// Keep the old ID export so existing toggle-button code still compiles
 export const SLOPE_LAYER_ID = LAYER_ID;
