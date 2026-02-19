@@ -1,90 +1,68 @@
 import maplibregl from 'maplibre-gl';
-import { DEM_SOURCE_ID } from './addElevationLayers';
-
-const SLOPE_LAYER_ID = 'slope-angle';
 
 /**
- * Slope-angle visualisation using 4 stacked hillshade layers.
- * hillshade-exaggeration must be in [0, 1] per MapLibre spec.
+ * Slope-angle layer — OpenSlopeMap WMTS raster tiles.
  *
- *  slope-base     green  — gentle < 30°
- *  slope-moderate yellow — moderate 30–35°
- *  slope-steep    red    — steep 35–40°
- *  slope-angle    maroon — extreme > 40°
+ * Colour scheme (standard avalanche palette):
+ *   white          < 27°  safe
+ *   yellow / green  27–30°  caution begin
+ *   yellow          30–34°  moderate
+ *   orange          34–38°  critical (most avalanches release here)
+ *   red             38–45°  very steep
+ *   violet / black  > 45°  extreme
+ *
+ * Tile URL pattern (TMS, no auth required):
+ *   https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png
+ *   (gps = global pseudo-mercator tile set)
+ *
+ * Attribution: © openslopemap.org, data © NASA/SRTM + Copernicus DEM
  */
+
+const SOURCE_ID = 'openslopemap-source';
+const LAYER_ID  = 'openslopemap-layer';
+
+// Attribution shown in map corner
+const ATTRIBUTION = '© <a href="https://www.openslopemap.org" target="_blank">OpenSlopeMap</a>';
+
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
-  if (!map.getSource(DEM_SOURCE_ID)) return;
-
-  if (!map.getLayer('slope-base')) {
-    map.addLayer({
-      id: 'slope-base', type: 'hillshade', source: DEM_SOURCE_ID,
-      layout: { visibility: 'none' },
-      paint: {
-        'hillshade-shadow-color':    '#4CAF50',
-        'hillshade-highlight-color': '#c8f0c8',
-        'hillshade-accent-color':    '#81C784',
-        'hillshade-exaggeration':    0.6,           // ≤ 1.0 ✔
-        'hillshade-illumination-anchor':    'map',
-        'hillshade-illumination-direction': 335
-      }
+  if (!map.getSource(SOURCE_ID)) {
+    map.addSource(SOURCE_ID, {
+      type: 'raster',
+      tiles: [
+        'https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png'
+      ],
+      tileSize: 256,
+      minzoom: 7,
+      maxzoom: 15,
+      attribution: ATTRIBUTION
     });
   }
 
-  if (!map.getLayer('slope-moderate')) {
+  if (!map.getLayer(LAYER_ID)) {
     map.addLayer({
-      id: 'slope-moderate', type: 'hillshade', source: DEM_SOURCE_ID,
+      id: LAYER_ID,
+      type: 'raster',
+      source: SOURCE_ID,
       layout: { visibility: 'none' },
       paint: {
-        'hillshade-shadow-color':    '#FFC107',
-        'hillshade-highlight-color': '#fff9c4',
-        'hillshade-accent-color':    '#FFD54F',
-        'hillshade-exaggeration':    0.7,           // ≤ 1.0 ✔
-        'hillshade-illumination-anchor':    'map',
-        'hillshade-illumination-direction': 335
-      }
-    });
-  }
-
-  if (!map.getLayer('slope-steep')) {
-    map.addLayer({
-      id: 'slope-steep', type: 'hillshade', source: DEM_SOURCE_ID,
-      layout: { visibility: 'none' },
-      paint: {
-        'hillshade-shadow-color':    '#F44336',
-        'hillshade-highlight-color': '#ffcdd2',
-        'hillshade-accent-color':    '#E53935',
-        'hillshade-exaggeration':    0.9,           // ≤ 1.0 ✔
-        'hillshade-illumination-anchor':    'map',
-        'hillshade-illumination-direction': 335
-      }
-    });
-  }
-
-  if (!map.getLayer(SLOPE_LAYER_ID)) {
-    map.addLayer({
-      id: SLOPE_LAYER_ID, type: 'hillshade', source: DEM_SOURCE_ID,
-      layout: { visibility: 'none' },
-      paint: {
-        'hillshade-shadow-color':    '#7B1FA2',
-        'hillshade-highlight-color': '#e1bee7',
-        'hillshade-accent-color':    '#6A1B9A',
-        'hillshade-exaggeration':    1.0,           // max allowed ✔
-        'hillshade-illumination-anchor':    'map',
-        'hillshade-illumination-direction': 335
+        // Show at 70 % opacity so base map (roads, labels) stay visible
+        'raster-opacity': 0.70,
+        // Slight brightness boost — slope tiles are dark by default
+        'raster-brightness-min': 0.05,
+        // Fade-in on tile load
+        'raster-fade-duration': 300
       }
     });
   }
 }
 
-const ALL_SLOPE_LAYERS = ['slope-base', 'slope-moderate', 'slope-steep', SLOPE_LAYER_ID];
-
 export function toggleSlopeAngleLayer(map: maplibregl.Map): boolean {
-  const current = map.getLayoutProperty('slope-base', 'visibility') ?? 'none';
+  if (!map.getLayer(LAYER_ID)) return false;
+  const current = (map.getLayoutProperty(LAYER_ID, 'visibility') ?? 'none') as string;
   const next = current === 'visible' ? 'none' : 'visible';
-  for (const id of ALL_SLOPE_LAYERS) {
-    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', next);
-  }
+  map.setLayoutProperty(LAYER_ID, 'visibility', next);
   return next === 'visible';
 }
 
-export { SLOPE_LAYER_ID };
+// Keep the old ID export so existing toggle-button code still compiles
+export const SLOPE_LAYER_ID = LAYER_ID;
