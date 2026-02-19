@@ -1,18 +1,6 @@
 import maplibregl from 'maplibre-gl';
 import { registerSlopeProtocol } from './slopeProtocol';
 
-/**
- * Slope-angle overlay — fully client-side, no external tile server.
- *
- * Uses a custom MapLibre protocol "slope://" that:
- *   - Fetches MapTiler terrain-rgb-v2 tiles (same key as base map)
- *   - Decodes elevation via mapbox encoding
- *   - Computes slope angle with Sobel operator
- *   - Renders CalTopo-compatible avalanche colour palette
- *
- * Requires VITE_MAPTILER_KEY in .env
- */
-
 const SOURCE_ID = 'slope-source';
 const LAYER_ID  = 'slope-layer';
 
@@ -23,7 +11,6 @@ export function addSlopeAngleLayer(map: maplibregl.Map): void {
     return;
   }
 
-  // Register custom protocol once
   registerSlopeProtocol(apiKey);
 
   if (!map.getSource(SOURCE_ID)) {
@@ -51,8 +38,10 @@ export function addSlopeAngleLayer(map: maplibregl.Map): void {
         source: SOURCE_ID,
         layout: { visibility: 'none' },
         paint: {
-          'raster-opacity': 0.8,
-          'raster-fade-duration': 300
+          'raster-opacity':     0.75,
+          'raster-fade-duration': 400,
+          // Bilienar interpolation — smooths pixel edges when zooming in
+          'raster-resampling': 'linear'
         }
       },
       beforeId
