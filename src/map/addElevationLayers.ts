@@ -1,7 +1,21 @@
 import maplibregl from 'maplibre-gl';
 
 export const DEM_SOURCE_ID = 'dem';
-const DEM_TILES_URL = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png';
+
+/**
+ * DEM source — MapTiler Terrain RGB v2.
+ * - Works from Russia (no AWS S3 block)
+ * - CORS enabled
+ * - Same API key as base map (VITE_MAPTILER_KEY)
+ */
+function getDemTilesUrl(): string {
+  const key = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
+  if (!key) {
+    console.warn('[Avalancher] VITE_MAPTILER_KEY not set — DEM unavailable');
+    return '';
+  }
+  return `https://api.maptiler.com/tiles/terrain-rgb-v2/{z}/{x}/{y}.webp?key=${key}`;
+}
 
 // Throttle contour fetches: wait at least 2s after map stops
 let contourTimer: ReturnType<typeof setTimeout> | null = null;
@@ -9,49 +23,56 @@ let contourTimer: ReturnType<typeof setTimeout> | null = null;
 let lastBbox = '';
 
 export function addElevationLayers(map: maplibregl.Map): void {
+  const demUrl = getDemTilesUrl();
+  if (!demUrl) return;
 
-  // Raster DEM source
+  // ── Raster DEM source (shared by hillshade + slope layer) ──────────────
   if (!map.getSource(DEM_SOURCE_ID)) {
     map.addSource(DEM_SOURCE_ID, {
       type: 'raster-dem',
-      tiles: [DEM_TILES_URL],
+      tiles: [demUrl],
       tileSize: 256,
-      encoding: 'terrarium',
+      encoding: 'mapbox',   // MapTiler terrain-rgb-v2 uses mapbox encoding
       minzoom: 0,
       maxzoom: 14
     } as maplibregl.RasterDEMSourceSpecification);
   }
 
-  // Hillshade
+  // ── Hillshade — inserted BEFORE contour lines so labels stay on top ────
   if (!map.getLayer('hillshade')) {
-    map.addLayer({
-      id: 'hillshade',
-      type: 'hillshade',
-      source: DEM_SOURCE_ID,
-      paint: {
-        'hillshade-shadow-color':    '#2d4059',
-        'hillshade-highlight-color': '#ffffff',
-        'hillshade-accent-color':    '#3a5068',
-        'hillshade-exaggeration':    0.4,
-        'hillshade-illumination-anchor': 'viewport'
-      }
-    });
+    // beforeId = first contour layer; falls back to undefined (append) if not yet added
+    const beforeId = map.getLayer('contours-minor') ? 'contours-minor' : undefined;
+    map.addLayer(
+      {
+        id: 'hillshade',
+        type: 'hillshade',
+        source: DEM_SOURCE_ID,
+        paint: {
+          'hillshade-shadow-color':         '#2d4059',
+          'hillshade-highlight-color':      '#ffffff',
+          'hillshade-accent-color':         '#3a5068',
+          'hillshade-exaggeration':         0.4,
+          'hillshade-illumination-anchor':  'viewport'
+        }
+      },
+      beforeId
+    );
   }
 
-  // 3D terrain (separate source to avoid MapLibre warning)
+  // ── 3D terrain (separate source — MapLibre requires it for setTerrain) ──
   if (!map.getSource('dem-terrain')) {
     map.addSource('dem-terrain', {
       type: 'raster-dem',
-      tiles: [DEM_TILES_URL],
+      tiles: [demUrl],
       tileSize: 256,
-      encoding: 'terrarium',
+      encoding: 'mapbox',
       minzoom: 0,
       maxzoom: 14
     } as maplibregl.RasterDEMSourceSpecification);
   }
   try { map.setTerrain({ source: 'dem-terrain', exaggeration: 1.2 }); } catch { /* ok */ }
 
-  // GeoJSON source for contour lines (populated lazily on moveend)
+  // ── Contour GeoJSON source + layers ─────────────────────────────────────
   if (!map.getSource('contours-geojson')) {
     map.addSource('contours-geojson', {
       type: 'geojson',
@@ -91,7 +112,7 @@ export function addElevationLayers(map: maplibregl.Map): void {
     });
   }
 
-  // Throttled contour fetch: only at zoom >= 12, deduplicated by bbox, 2s debounce
+  // ── Throttled contour fetch (zoom ≥ 12, 2s debounce, dedup by bbox) ─────
   const fetchContours = () => {
     if (contourTimer) clearTimeout(contourTimer);
     contourTimer = setTimeout(async () => {
@@ -103,7 +124,7 @@ export function addElevationLayers(map: maplibregl.Map): void {
         b.getSouth().toFixed(4), b.getWest().toFixed(4),
         b.getNorth().toFixed(4), b.getEast().toFixed(4)
       ].join(',');
-      if (bbox === lastBbox) return;   // same view — skip
+      if (bbox === lastBbox) return;
       lastBbox = bbox;
 
       const interval = zoom >= 14 ? 25 : zoom >= 13 ? 50 : 100;
@@ -115,7 +136,7 @@ out geom;`;
         const r = await fetch('https://overpass-api.de/api/interpreter', {
           method: 'POST', body: query
         });
-        if (!r.ok) return;  // silently skip on rate-limit
+        if (!r.ok) return;
         const data = await r.json();
         const osmtogeojson = (await import('osmtogeojson')).default;
         const geojson = osmtogeojson(data) as GeoJSON.FeatureCollection;
@@ -129,7 +150,7 @@ out geom;`;
         }));
         (map.getSource('contours-geojson') as maplibregl.GeoJSONSource)?.setData(geojson);
       } catch { /* network error — ignore */ }
-    }, 2000);  // 2s debounce
+    }, 2000);
   };
 
   map.on('moveend', fetchContours);

@@ -1,69 +1,48 @@
 import maplibregl from 'maplibre-gl';
+import { DEM_SOURCE_ID } from './addElevationLayers';
 
 /**
- * Slope-angle layer using Terrain RGB DEM + MapLibre hillshade.
+ * Slope-angle overlay — reuses the shared 'dem' raster-dem source
+ * already added by addElevationLayers().
  *
- * Source: AWS Terrarium elevation tiles (s3.amazonaws.com/elevation-tiles-prod)
- *   - Completely free, public domain, CORS enabled
- *   - Resolution: up to zoom 15 (~4 m/pixel)
+ * Rendered as a second hillshade layer with high exaggeration and
+ * avalanche-palette colours. Inserted BEFORE contour lines so that
+ * labels and numbers stay on top at all times.
  *
- * Rendering: MapLibre `hillshade` layer type which uses raster-dem
- *   natively — no proxy, no CORS issues, works in dev and prod.
- *
- * Avalanche colour palette (approximate via hillshade shadow/highlight):
- *   The hillshade layer visualises the steepness/relief of the terrain.
- *   For full degree-accurate slope colouring, a raster-color source
- *   with a compute shader is required (MapLibre 5+).
- *
- * Colour tweaks:
- *   shadow-color  → red tones  (steep, dangerous)
- *   highlight-color → green tones (gentle slopes)
- *   exaggeration  → 1.0 makes relief prominent
+ * No extra network requests — no new source, no proxy needed.
  */
 
-const DEM_SOURCE_ID  = 'terrarium-dem';
-const LAYER_ID       = 'slope-hillshade-layer';
-
-const TERRARIUM_TILES = [
-  'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'
-];
-
-const ATTRIBUTION =
-  '© <a href="https://registry.opendata.aws/terrain-tiles/" target="_blank">Terrain Tiles / AWS</a>';
+const LAYER_ID = 'slope-hillshade-layer';
 
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
+  // DEM source must already exist (addElevationLayers called first)
   if (!map.getSource(DEM_SOURCE_ID)) {
-    map.addSource(DEM_SOURCE_ID, {
-      type: 'raster-dem',
-      tiles: TERRARIUM_TILES,
-      tileSize: 256,
-      minzoom: 0,
-      maxzoom: 15,
-      encoding: 'terrarium',
-      attribution: ATTRIBUTION
-    });
+    console.warn('[Avalancher] slope layer: DEM source not ready, skipping');
+    return;
   }
 
   if (!map.getLayer(LAYER_ID)) {
-    map.addLayer({
-      id: LAYER_ID,
-      type: 'hillshade',
-      source: DEM_SOURCE_ID,
-      layout: { visibility: 'none' },
-      paint: {
-        // Shadow = steep/dangerous slopes → red
-        'hillshade-shadow-color': '#C62828',
-        // Highlight = gentle slopes → light green
-        'hillshade-highlight-color': '#A5D6A7',
-        // Accent = mid slopes → orange
-        'hillshade-accent-color': '#FF6F00',
-        // Strong exaggeration to make steep vs flat obvious
-        'hillshade-exaggeration': 1.0,
-        // Sun from NW — standard cartographic convention
-        'hillshade-illumination-direction': 315,
-        'hillshade-illumination-anchor': 'map'
-      }
-    });
+    // Always insert before contour lines so labels/numbers remain on top
+    const beforeId = map.getLayer('contours-minor') ? 'contours-minor' : undefined;
+
+    map.addLayer(
+      {
+        id: LAYER_ID,
+        type: 'hillshade',
+        source: DEM_SOURCE_ID,
+        layout: { visibility: 'none' },
+        paint: {
+          // Red = steep/dangerous, green = gentle, orange = mid
+          'hillshade-shadow-color':         '#C62828',
+          'hillshade-highlight-color':      '#A5D6A7',
+          'hillshade-accent-color':         '#FF6F00',
+          'hillshade-exaggeration':         1.0,
+          'hillshade-illumination-direction': 315,
+          'hillshade-illumination-anchor':  'map'
+        }
+      },
+      beforeId
+    );
   }
 }
 
