@@ -13,8 +13,8 @@ interface Props {
 }
 
 /**
- * MapTiler Outdoor-v2 — winter/mountain style with contours,
- * ski runs and terrain built-in.
+ * MapTiler Winter-v2 — dedicated winter/snow style with
+ * ski runs, contour lines and snow-colour terrain built-in.
  * Requires VITE_MAPTILER_KEY in .env
  */
 function getStyleUrl(): string {
@@ -24,10 +24,9 @@ function getStyleUrl(): string {
       '[Avalancher] VITE_MAPTILER_KEY not set. '
       + 'Copy .env.example to .env and add your MapTiler key.'
     );
-    // Fallback: OpenFreeMap (no key needed)
     return 'https://tiles.openfreemap.org/styles/liberty';
   }
-  return `https://api.maptiler.com/maps/outdoor-v2/style.json?key=${key}`;
+  return `https://api.maptiler.com/maps/winter-v2/style.json?key=${key}`;
 }
 
 const MapView = forwardRef<MapViewHandle, Props>(({ onMapLoad, onMapClick }, ref) => {
