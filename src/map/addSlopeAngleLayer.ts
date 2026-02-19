@@ -1,32 +1,32 @@
 import maplibregl from 'maplibre-gl';
 
 /**
- * Slope-angle overlay — OsmAnd Slope raster tiles.
+ * Slope-angle overlay — OsmAnd Slope raster tiles via Vite proxy.
  *
- * Source: tile.osmand.net/hd/slope/{z}/{x}/{y}.png
- *   - Free, no API key required
- *   - CORS enabled
- *   - Real degree-accurate slope colouring (CalTopo-compatible palette)
+ * Dev/preview:  /tile-proxy/slope/{z}/{x}/{y}.png
+ *               → https://tile.osmand.net/hd/slope/{z}/{x}/{y}.png
  *
- * Avalanche colour palette:
+ * Production (nginx/caddy):
+ *   location /tile-proxy/slope/ {
+ *     proxy_pass https://tile.osmand.net/hd/slope/;
+ *     proxy_set_header Host tile.osmand.net;
+ *     add_header Access-Control-Allow-Origin *;
+ *   }
+ *
+ * Avalanche colour palette (degree-accurate, CalTopo-compatible):
  *   transparent    < 27°  safe
- *   white          27–29°  caution start
+ *   white          27–30°  caution start
  *   green          30–34°  moderate
  *   yellow         34–38°  elevated
- *   orange/red     38–45°  critical (peak avalanche release zone)
+ *   orange/red     38–45°  critical
  *   violet         45–50°  very steep
  *   blue           50°+    extreme
- *
- * Layer is inserted BEFORE contour lines so labels/numbers stay on top.
  */
 
 const SOURCE_ID = 'osmand-slope-source';
 const LAYER_ID  = 'osmand-slope-layer';
 
-// OsmAnd tile servers (round-robin load balancing)
-const TILE_URLS = [
-  'https://tile.osmand.net/hd/slope/{z}/{x}/{y}.png'
-];
+const TILE_URLS = ['/tile-proxy/slope/{z}/{x}/{y}.png'];
 
 const ATTRIBUTION =
   '© <a href="https://osmand.net" target="_blank">OsmAnd</a>';
@@ -44,7 +44,6 @@ export function addSlopeAngleLayer(map: maplibregl.Map): void {
   }
 
   if (!map.getLayer(LAYER_ID)) {
-    // Insert before contour lines so elevation labels stay on top
     const beforeId = (
       map.getLayer('contours-minor') ? 'contours-minor' :
       map.getLayer('contours-major') ? 'contours-major' :

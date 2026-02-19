@@ -2,6 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
 
+const PROXY_SLOPE = {
+  target: 'https://tile.osmand.net',
+  changeOrigin: true,
+  rewrite: (path: string) => path.replace(/^\/tile-proxy\/slope/, '/hd/slope'),
+  secure: true,
+};
+
 export default defineConfig({
   plugins: [
     react(),
@@ -28,23 +35,21 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/api\.maptiler\.com\/.*/i,
+            // OsmAnd slope tiles via proxy (dev) or reverse-proxy (prod)
+            urlPattern: /^\/tile-proxy\/slope\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'maptiler-tiles',
-              expiration: {
-                maxEntries: 1500,
-                maxAgeSeconds: 60 * 60 * 24 * 14  // 2 weeks
-              },
+              cacheName: 'slope-tiles',
+              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 },
               cacheableResponse: { statuses: [0, 200] }
             }
           },
           {
-            urlPattern: /^https:\/\/s3\.amazonaws\.com\/elevation-tiles-prod\/.*/i,
+            urlPattern: /^https:\/\/api\.maptiler\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'dem-tiles',
-              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              cacheName: 'maptiler-tiles',
+              expiration: { maxEntries: 1500, maxAgeSeconds: 60 * 60 * 24 * 14 },
               cacheableResponse: { statuses: [0, 200] }
             }
           },
@@ -60,6 +65,18 @@ export default defineConfig({
         ]
       }
     })
-  ]
-  // No proxy needed — MapTiler has proper CORS headers
+  ],
+
+  server: {
+    proxy: {
+      // Dev: /tile-proxy/slope/{z}/{x}/{y}.png → https://tile.osmand.net/hd/slope/{z}/{x}/{y}.png
+      '/tile-proxy/slope': PROXY_SLOPE
+    }
+  },
+
+  preview: {
+    proxy: {
+      '/tile-proxy/slope': PROXY_SLOPE
+    }
+  }
 });
