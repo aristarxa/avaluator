@@ -1,39 +1,44 @@
 import maplibregl from 'maplibre-gl';
 
 /**
- * Slope-angle layer — OpenSlopeMap raster tiles proxied through Vite
- * to avoid CORS (openslopemap.org has no CORS headers).
+ * Slope-angle layer — MapTiler Slope raster tiles.
  *
- * Dev + preview: Vite proxy  /tile-proxy/slope/{z}/{x}/{y}.png
- *                           → https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png
- *
- * Production (self-hosted): configure your reverse-proxy (nginx/caddy) to
- *   proxy_pass /tile-proxy/slope/ → https://www.openslopemap.org/karten/gps/
- *
- * Colour scheme (standard avalanche palette):
+ * MapTiler Slope tiles use the standard avalanche colour palette:
  *   white          < 27°  safe
- *   green           27–30°  caution begin
+ *   green           27–30°  caution
  *   yellow          30–34°  moderate
- *   orange          34–38°  critical
+ *   orange          34–38°  critical (most avalanche releases)
  *   red             38–45°  very steep
  *   violet/black    > 45°  extreme
+ *
+ * Requires VITE_MAPTILER_KEY in .env (same key used for base map).
+ * CORS: MapTiler tiles have proper CORS headers — no proxy needed.
  */
 
-const SOURCE_ID = 'openslopemap-source';
-const LAYER_ID  = 'openslopemap-layer';
+const SOURCE_ID = 'maptiler-slope-source';
+const LAYER_ID  = 'maptiler-slope-layer';
 
-const ATTRIBUTION = '© <a href="https://www.openslopemap.org" target="_blank">OpenSlopeMap</a>';
+function getTileUrl(): string {
+  const key = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
+  if (!key || key === 'your_maptiler_key_here') {
+    console.warn('[Avalancher] VITE_MAPTILER_KEY not set — slope layer unavailable');
+    return '';
+  }
+  return `https://api.maptiler.com/tiles/slope/{z}/{x}/{y}.png?key=${key}`;
+}
 
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
+  const tileUrl = getTileUrl();
+  if (!tileUrl) return;
+
   if (!map.getSource(SOURCE_ID)) {
     map.addSource(SOURCE_ID, {
       type: 'raster',
-      // Proxied URL — no CORS issues in dev or prod (with reverse proxy)
-      tiles: ['/tile-proxy/slope/{z}/{x}/{y}.png'],
+      tiles: [tileUrl],
       tileSize: 256,
-      minzoom: 7,
-      maxzoom: 15,
-      attribution: ATTRIBUTION
+      minzoom: 0,
+      maxzoom: 14,
+      attribution: '© <a href="https://www.maptiler.com/copyright/" target="_blank">MapTiler</a>'
     });
   }
 
@@ -45,7 +50,7 @@ export function addSlopeAngleLayer(map: maplibregl.Map): void {
       layout: { visibility: 'none' },
       paint: {
         'raster-opacity': 0.72,
-        'raster-brightness-min': 0.05,
+        'raster-brightness-min': 0.02,
         'raster-fade-duration': 300
       }
     });

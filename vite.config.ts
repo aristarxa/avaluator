@@ -28,30 +28,14 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [
           {
-            // Proxy path — cached by SW in prod
-            urlPattern: /^\/tile-proxy\/slope\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'slope-tiles',
-              expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 30 },
-              cacheableResponse: { statuses: [0, 200] }
-            }
-          },
-          {
-            urlPattern: /^https:\/\/tiles\.openfreemap\.org\/.*/i,
-            handler: 'CacheFirst',
-            options: {
-              cacheName: 'openfreemap-tiles',
-              expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 7 },
-              cacheableResponse: { statuses: [0, 200] }
-            }
-          },
-          {
             urlPattern: /^https:\/\/api\.maptiler\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'maptiler-tiles',
-              expiration: { maxEntries: 1000, maxAgeSeconds: 60 * 60 * 24 * 7 },
+              expiration: {
+                maxEntries: 1500,
+                maxAgeSeconds: 60 * 60 * 24 * 14  // 2 weeks
+              },
               cacheableResponse: { statuses: [0, 200] }
             }
           },
@@ -76,33 +60,6 @@ export default defineConfig({
         ]
       }
     })
-  ],
-
-  server: {
-    proxy: {
-      /**
-       * Dev CORS proxy: /tile-proxy/slope/{z}/{x}/{y}.png
-       *   → https://www.openslopemap.org/karten/gps/{z}/{x}/{y}.png
-       *
-       * Vite adds CORS headers automatically — browser sees localhost.
-       */
-      '/tile-proxy/slope': {
-        target: 'https://www.openslopemap.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/tile-proxy\/slope/, '/karten/gps'),
-        secure: true
-      }
-    }
-  },
-
-  preview: {
-    proxy: {
-      '/tile-proxy/slope': {
-        target: 'https://www.openslopemap.org',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/tile-proxy\/slope/, '/karten/gps'),
-        secure: true
-      }
-    }
-  }
+  ]
+  // No proxy needed — MapTiler has proper CORS headers
 });
