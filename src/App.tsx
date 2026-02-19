@@ -162,7 +162,7 @@ export default function App() {
     <div style={{ width: '100vw', height: '100vh', overflow: 'hidden', position: 'relative' }}>
       <MapView ref={mapViewRef} onMapLoad={handleMapLoad} />
 
-      {/* Desktop: FAB column top-right */}
+      {/* Desktop FAB column */}
       {isDesktop && (
         <DesktopFABs
           activeTool={activeTool}
@@ -172,7 +172,7 @@ export default function App() {
         />
       )}
 
-      {/* Mobile: bottom pill */}
+      {/* Mobile Navigation Bar */}
       {!isDesktop && (
         <Toolbar
           activeTool={activeTool}
@@ -184,17 +184,10 @@ export default function App() {
 
       <InstallPrompt />
 
+      {/* Drawing mode toast */}
       {activeTool === 'draw' && (
-        <div style={{
-          position: 'fixed', top: '20px', left: '50%',
-          transform: 'translateX(-50%)',
-          background: MD3.primary,
-          color: MD3.onPrimary,
-          padding: '10px 22px', borderRadius: MD3.radiusFull,
-          fontSize: '14px', fontWeight: 600, zIndex: 25,
-          pointerEvents: 'none',
-          border: '1px solid rgba(255,255,255,0.25)'
-        }}>
+        <div className="m3-snackbar" style={{ pointerEvents: 'none' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: '18px', verticalAlign: 'middle', marginRight: '8px' }}>gesture</span>
           Рисуйте склон — замкните на первую точку
         </div>
       )}
