@@ -1,45 +1,39 @@
 import maplibregl from 'maplibre-gl';
+import { registerSlopeProtocol } from './slopeProtocol';
 
 /**
- * Slope-angle overlay — OsmAnd Slope raster tiles via Vite proxy.
+ * Slope-angle overlay — fully client-side, no external tile server.
  *
- * Dev/preview:  /tile-proxy/slope/{z}/{x}/{y}.png
- *               → https://tile.osmand.net/hd/slope/{z}/{x}/{y}.png
+ * Uses a custom MapLibre protocol "slope://" that:
+ *   - Fetches MapTiler terrain-rgb-v2 tiles (same key as base map)
+ *   - Decodes elevation via mapbox encoding
+ *   - Computes slope angle with Sobel operator
+ *   - Renders CalTopo-compatible avalanche colour palette
  *
- * Production (nginx/caddy):
- *   location /tile-proxy/slope/ {
- *     proxy_pass https://tile.osmand.net/hd/slope/;
- *     proxy_set_header Host tile.osmand.net;
- *     add_header Access-Control-Allow-Origin *;
- *   }
- *
- * Avalanche colour palette (degree-accurate, CalTopo-compatible):
- *   transparent    < 27°  safe
- *   white          27–30°  caution start
- *   green          30–34°  moderate
- *   yellow         34–38°  elevated
- *   orange/red     38–45°  critical
- *   violet         45–50°  very steep
- *   blue           50°+    extreme
+ * Requires VITE_MAPTILER_KEY in .env
  */
 
-const SOURCE_ID = 'osmand-slope-source';
-const LAYER_ID  = 'osmand-slope-layer';
-
-const TILE_URLS = ['/tile-proxy/slope/{z}/{x}/{y}.png'];
-
-const ATTRIBUTION =
-  '© <a href="https://osmand.net" target="_blank">OsmAnd</a>';
+const SOURCE_ID = 'slope-source';
+const LAYER_ID  = 'slope-layer';
 
 export function addSlopeAngleLayer(map: maplibregl.Map): void {
+  const apiKey = import.meta.env.VITE_MAPTILER_KEY as string | undefined;
+  if (!apiKey) {
+    console.warn('[Avalancher] VITE_MAPTILER_KEY not set — slope layer unavailable');
+    return;
+  }
+
+  // Register custom protocol once
+  registerSlopeProtocol(apiKey);
+
   if (!map.getSource(SOURCE_ID)) {
     map.addSource(SOURCE_ID, {
       type: 'raster',
-      tiles: TILE_URLS,
+      tiles: ['slope://{z}/{x}/{y}'],
       tileSize: 256,
-      minzoom: 4,
-      maxzoom: 19,
-      attribution: ATTRIBUTION
+      minzoom: 6,
+      maxzoom: 14,
+      attribution: 'Slope — вычислено на клиенте • DEM: © MapTiler'
     });
   }
 
@@ -57,8 +51,8 @@ export function addSlopeAngleLayer(map: maplibregl.Map): void {
         source: SOURCE_ID,
         layout: { visibility: 'none' },
         paint: {
-          'raster-opacity': 0.75,
-          'raster-fade-duration': 200
+          'raster-opacity': 0.8,
+          'raster-fade-duration': 300
         }
       },
       beforeId
